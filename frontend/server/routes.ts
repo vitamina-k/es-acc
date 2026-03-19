@@ -86,12 +86,36 @@ const MOCK_PATTERNS: Record<string, PatternResponse> = {
 };
 
 const MOCK_SEARCH: SearchResultApi[] = [
-  { id: "B12345678", label: "Company", name: "Construcciones Ibéricas S.L.", snippet: "Madrid — Activa — 2 contratos públicos, 1 deuda AEAT", score: 0.95 },
-  { id: "A87654321", label: "Company", name: "Tecnologías Avanzadas S.A.", snippet: "Barcelona — Activa — 2 contratos públicos", score: 0.82 },
-  { id: "demo:carlos-martinez", label: "Person", name: "Carlos Martínez López", snippet: "Diputado/a — Congreso de los Diputados — GPP", score: 0.78 },
-  { id: "B11223344", label: "Company", name: "Servicios Globales del Levante S.L.", snippet: "Valencia — Activa — 1 subvención", score: 0.65 },
-  { id: "A44332211", label: "Company", name: "Infraestructuras Mediterráneo S.A.", snippet: "Málaga — Activa — Sanción medioambiental MITECO", score: 0.60 },
-  { id: "demo:maria-garcia", label: "Person", name: "María García Fernández", snippet: "Senador/a — Senado de España — GPS", score: 0.55 },
+  // --- Políticos reales (figuras públicas) ---
+  { id: "congreso:pedro-sanchez-perez-castejon", label: "Person", name: "Pedro Sánchez Pérez-Castejón", snippet: "Presidente del Gobierno — Congreso de los Diputados — PSOE", score: 0.99 },
+  { id: "congreso:alberto-nunez-feijoo", label: "Person", name: "Alberto Núñez Feijóo", snippet: "Diputado/a — Congreso de los Diputados — GPP (Líder de la oposición)", score: 0.98 },
+  { id: "congreso:santiago-abascal-conde", label: "Person", name: "Santiago Abascal Conde", snippet: "Diputado/a — Congreso de los Diputados — GPVOX", score: 0.95 },
+  { id: "congreso:yolanda-diaz-perez", label: "Person", name: "Yolanda Díaz Pérez", snippet: "Vicepresidenta Segunda — Congreso de los Diputados — Sumar", score: 0.94 },
+  { id: "congreso:cuca-gamarra-ruiz-clavijo", label: "Person", name: "Cuca Gamarra Ruiz-Clavijo", snippet: "Diputado/a — Congreso de los Diputados — GPP (Secretaria General)", score: 0.90 },
+  { id: "congreso:gabriel-rufian-romero", label: "Person", name: "Gabriel Rufián Romero", snippet: "Diputado/a — Congreso de los Diputados — ERC", score: 0.88 },
+  { id: "congreso:ione-belarra-urteaga", label: "Person", name: "Ione Belarra Urteaga", snippet: "Diputado/a — Congreso de los Diputados — Podemos", score: 0.86 },
+  { id: "congreso:aitor-esteban-bravo", label: "Person", name: "Aitor Esteban Bravo", snippet: "Diputado/a — Congreso de los Diputados — PNV", score: 0.84 },
+  { id: "congreso:mertxe-aizpurua-arzallus", label: "Person", name: "Mertxe Aizpurua Arzallus", snippet: "Diputado/a — Congreso de los Diputados — EH Bildu", score: 0.82 },
+  { id: "congreso:ines-arrimadas-garcia", label: "Person", name: "Inés Arrimadas García", snippet: "Ex-Diputado/a — Congreso de los Diputados — Ciudadanos", score: 0.80 },
+  { id: "congreso:alvise-perez", label: "Person", name: "Luis Pérez Fernández (Alvise)", snippet: "Diputado/a — Congreso de los Diputados — Se Acabó la Fiesta", score: 0.78 },
+  { id: "boe_pep:maria-jesus-montero", label: "Person", name: "María Jesús Montero Gil", snippet: "Vicepresidenta Primera y Ministra de Hacienda — Gobierno de España", score: 0.93 },
+  { id: "boe_pep:fernando-grande-marlaska", label: "Person", name: "Fernando Grande-Marlaska Gómez", snippet: "Ministro del Interior — Gobierno de España", score: 0.91 },
+  { id: "boe_pep:margarita-robles-fernandez", label: "Person", name: "Margarita Robles Fernández", snippet: "Ministra de Defensa — Gobierno de España", score: 0.90 },
+  { id: "boe_pep:carlos-cuerpo-caballero", label: "Person", name: "Carlos Cuerpo Caballero", snippet: "Ministro de Economía — Gobierno de España", score: 0.89 },
+  { id: "eurodiputados:dolors-montserrat", label: "Person", name: "Dolors Montserrat Montserrat", snippet: "Eurodiputada — Parlamento Europeo — PPE", score: 0.76 },
+  { id: "eurodiputados:irene-montero", label: "Person", name: "Irene Montero Gil", snippet: "Eurodiputada — Parlamento Europeo — Podemos", score: 0.74 },
+
+  // --- Empresas reales (contratistas públicos conocidos) ---
+  { id: "A28017895", label: "Company", name: "ACS, Actividades de Construcción y Servicios S.A.", snippet: "Madrid — Activa — Mayor contratista público de España — 4.812 contratos", score: 0.97 },
+  { id: "A08015497", label: "Company", name: "Ferrovial S.E.", snippet: "Madrid — Activa — Infraestructuras y servicios — 2.891 contratos públicos", score: 0.96 },
+  { id: "A48010615", label: "Company", name: "Iberdrola S.A.", snippet: "Bilbao — Activa — Energía — 1.204 contratos públicos", score: 0.94 },
+  { id: "A28023430", label: "Company", name: "Acciona S.A.", snippet: "Madrid — Activa — Infraestructuras y energía — 2.103 contratos públicos", score: 0.93 },
+  { id: "A28004885", label: "Company", name: "FCC, Fomento de Construcciones y Contratas S.A.", snippet: "Madrid — Activa — Construcción y servicios — 3.456 contratos públicos", score: 0.92 },
+  { id: "A28037224", label: "Company", name: "Indra Sistemas S.A.", snippet: "Madrid — Activa — Tecnología y defensa — 1.891 contratos públicos", score: 0.91 },
+  { id: "A79354442", label: "Company", name: "Sacyr S.A.", snippet: "Madrid — Activa — Construcción e infraestructuras — 1.542 contratos públicos", score: 0.88 },
+  { id: "A78374725", label: "Company", name: "OHL (OHLA Group) S.A.", snippet: "Madrid — Activa — Construcción — 891 contratos públicos", score: 0.85 },
+  { id: "A28015865", label: "Company", name: "Telefónica S.A.", snippet: "Madrid — Activa — Telecomunicaciones — 2.340 contratos públicos", score: 0.90 },
+  { id: "B12345678", label: "Company", name: "Construcciones Ibéricas S.L.", snippet: "Madrid — Activa — 2 contratos públicos, 1 deuda AEAT (demo)", score: 0.50 },
 ];
 
 export async function registerRoutes(server: Server, app: Express) {
@@ -132,10 +156,51 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // Search
   app.get("/api/v1/public/search", (req, res) => {
-    const q = (req.query.q as string || "").toLowerCase();
-    const filtered = MOCK_SEARCH.filter(
-      (r) => r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q)
-    );
-    res.json(filtered.length > 0 ? filtered : MOCK_SEARCH);
+    const q = (req.query.q as string || "").toLowerCase().trim();
+    if (!q || q.length < 2) {
+      res.json([]);
+      return;
+    }
+
+    // Normalize search: remove accents for fuzzy matching
+    const normalize = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const qNorm = normalize(q);
+
+    const scored = MOCK_SEARCH
+      .map((r) => {
+        const nameNorm = normalize(r.name);
+        const snippetNorm = normalize(r.snippet || "");
+        const idNorm = normalize(r.id);
+        let matchScore = 0;
+
+        // Exact name match
+        if (nameNorm === qNorm) matchScore = 1.0;
+        // Name starts with query
+        else if (nameNorm.startsWith(qNorm)) matchScore = 0.9;
+        // Name contains query
+        else if (nameNorm.includes(qNorm)) matchScore = 0.8;
+        // Any word in name starts with query
+        else if (nameNorm.split(/\s+/).some((w) => w.startsWith(qNorm))) matchScore = 0.75;
+        // Snippet contains query
+        else if (snippetNorm.includes(qNorm)) matchScore = 0.6;
+        // ID contains query
+        else if (idNorm.includes(qNorm)) matchScore = 0.5;
+        // Multi-word: all query words appear somewhere
+        else {
+          const queryWords = qNorm.split(/\s+/);
+          const allText = `${nameNorm} ${snippetNorm} ${idNorm}`;
+          if (queryWords.length > 1 && queryWords.every((w) => allText.includes(w))) {
+            matchScore = 0.65;
+          }
+        }
+
+        return { ...r, matchScore };
+      })
+      .filter((r) => r.matchScore > 0)
+      .sort((a, b) => b.matchScore - a.matchScore || b.score - a.score)
+      .map(({ matchScore, ...r }) => r);
+
+    res.json(scored);
   });
 }
