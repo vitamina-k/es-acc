@@ -9,19 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
+import ForceGraph2D from "react-force-graph-2d";
 import {
   Search,
   Building2,
-  User,
-  FileText,
   AlertTriangle,
   Shield,
-  Landmark,
-  Scale,
-  Globe,
-  Banknote,
   Eye,
   ZoomIn,
   ZoomOut,
@@ -131,24 +125,6 @@ const SEVERITY_STYLES: Record<string, string> = {
 };
 
 // ── Types ──
-interface GraphNode {
-  id: string;
-  label: string;
-  name: string;
-  x: number;
-  y: number;
-  r: number;
-  isCenter: boolean;
-  properties: Record<string, unknown>;
-}
-
-interface GraphEdge {
-  source: string;
-  target: string;
-  type: string;
-  properties: Record<string, unknown>;
-}
-
 interface DrillState {
   nodeId: string;
   data: NodeSubgraph;
@@ -163,7 +139,7 @@ function formatAmount(v: unknown): string | null {
   return `${v.toLocaleString("es-ES")} €`;
 }
 
-// ── Graph Visualization (zoomable, interactive) ──
+// ── Graph Visualization — Force-directed (react-force-graph-2d) ──
 function GraphVisualization({
   data,
   onDrillDown,
@@ -175,229 +151,171 @@ function GraphVisualization({
   drillStack: DrillState[];
   onBack: () => void;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fgRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 800, height: 520 });
+  const [tooltip, setTooltip] = useState<{ node: any; x: number; y: number } | null>(null);
+  const fittedRef = useRef(false);
+  const zoomRef = useRef(1);
+  const clickCountRef = useRef(0);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Transform state (zoom + pan)
-  const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
-  const [isPanning, setIsPanning] = useState(false);
-  const panStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
-
-  // Tooltip state
-  const [tooltip, setTooltip] = useState<{
-    node: GraphNode;
-    screenX: number;
-    screenY: number;
-  } | null>(null);
-
-  // Hovered node
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-
-  // Current drill state
   const currentDrill = drillStack.length > 0 ? drillStack[drillStack.length - 1] : null;
 
-  // Build node & edge lists from either drill data or company subgraph
-  const { nodes, edges } = useMemo(() => {
+  // Build ForceGraph data from drill state or main subgraph
+  const graphData = useMemo(() => {
     if (currentDrill) {
       const d = currentDrill.data;
-      const allNodes = [
-        { id: d.center.id, label: d.center.label, name: d.center.name, properties: d.center.properties },
-        ...d.nodes.map((n) => ({ id: n.id, label: n.label, name: n.name, properties: n.properties })),
-      ];
-      return { nodes: allNodes, edges: d.edges };
+      return {
+        nodes: [
+          { id: d.center.id, label: d.center.label, name: d.center.name, isCenter: true, properties: d.center.properties },
+          ...d.nodes.map((n) => ({ id: n.id, label: n.label, name: n.name, isCenter: false, properties: n.properties })),
+        ],
+        links: d.edges.map((e) => ({ source: e.source, target: e.target, type: e.type })),
+      };
     }
-    if (!data) return { nodes: [], edges: [] };
-    const allNodes = [
-      { id: data.center.nif, label: "Company", name: data.center.name, properties: {} as Record<string, unknown> },
-      ...data.nodes.map((n) => ({
-        id: n.id as string,
-        label: ((n.labels as string[]) || [])[0] || "Unknown",
-        name: (n.name || n.title || n.debtor_name || n.role || "Sin nombre") as string,
-        properties: n as Record<string, unknown>,
-      })),
-    ];
-    const edgeList = data.edges.map((e) => ({
-      source: e.source,
-      target: e.target,
-      type: e.type,
-      properties: e.properties,
-    }));
-    return { nodes: allNodes, edges: edgeList };
+    if (!data) return { nodes: [], links: [] };
+    return {
+      nodes: [
+        { id: data.center.nif, label: "Company", name: data.center.name, isCenter: true, properties: {} },
+        ...data.nodes.map((n) => ({
+          id: n.id as string,
+          label: ((n.labels as string[]) || [])[0] || "Unknown",
+          name: (n.name || n.title || n.debtor_name || n.role || "Sin nombre") as string,
+          isCenter: false,
+          properties: n as Record<string, unknown>,
+        })),
+      ],
+      links: data.edges.map((e) => ({ source: e.source, target: e.target, type: e.type })),
+    };
   }, [data, currentDrill]);
 
-  // Compute positions (force-like radial layout)
-  const positioned = useMemo<GraphNode[]>(() => {
-    if (nodes.length === 0) return [];
-    const cx = 450;
-    const cy = 300;
-    // Group by label for layered radial
-    const groups = new Map<string, typeof nodes>();
-    nodes.forEach((n, i) => {
-      if (i === 0) return; // center
-      const g = groups.get(n.label) || [];
-      g.push(n);
-      groups.set(n.label, g);
-    });
-
-    const result: GraphNode[] = [];
-    // Center node
-    result.push({ ...nodes[0], x: cx, y: cy, r: 30, isCenter: true, properties: nodes[0].properties || {} });
-
-    // Distribute groups in concentric arcs
-    let groupIdx = 0;
-    const totalGroups = groups.size || 1;
-    groups.forEach((members, _label) => {
-      const baseAngle = (groupIdx / totalGroups) * 2 * Math.PI - Math.PI / 2;
-      const spread = Math.min(((2 * Math.PI) / totalGroups) * 0.85, Math.PI);
-      members.forEach((n, mi) => {
-        const angleOffset =
-          members.length === 1
-            ? 0
-            : ((mi / (members.length - 1)) - 0.5) * spread;
-        const angle = baseAngle + angleOffset;
-        const radius = 160 + (mi % 2) * 40; // stagger
-        result.push({
-          ...n,
-          x: cx + radius * Math.cos(angle),
-          y: cy + radius * Math.sin(angle),
-          r: 22,
-          isCenter: false,
-          properties: n.properties || {},
-        });
-      });
-      groupIdx++;
-    });
-    return result;
-  }, [nodes]);
-
-  const posMap = useMemo(() => new Map(positioned.map((p) => [p.id, p])), [positioned]);
-
-  // Reset transform when drill changes
+  // Track container size
   useEffect(() => {
-    setTransform({ x: 0, y: 0, k: 1 });
-    setTooltip(null);
-    setHoveredId(null);
-  }, [currentDrill, data]);
-
-  // ── Zoom with scroll wheel ──
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const svg = svgRef.current;
-      if (!svg) return;
-      const rect = svg.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      const scaleFactor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-      const newK = Math.max(0.3, Math.min(5, transform.k * scaleFactor));
-
-      // Zoom towards mouse
-      const dx = mouseX - transform.x;
-      const dy = mouseY - transform.y;
-      setTransform({
-        k: newK,
-        x: mouseX - dx * (newK / transform.k),
-        y: mouseY - dy * (newK / transform.k),
-      });
-      setTooltip(null);
-    },
-    [transform]
-  );
-
-  // ── Pan with mouse drag ──
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button !== 0) return; // left button only for pan
-      // Check if clicking on a node — don't start pan
-      const target = e.target as SVGElement;
-      if (target.closest("[data-node-id]")) return;
-      setIsPanning(true);
-      panStart.current = { x: e.clientX, y: e.clientY, tx: transform.x, ty: transform.y };
-    },
-    [transform]
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isPanning) return;
-      const dx = e.clientX - panStart.current.x;
-      const dy = e.clientY - panStart.current.y;
-      setTransform((prev) => ({
-        ...prev,
-        x: panStart.current.tx + dx,
-        y: panStart.current.ty + dy,
-      }));
-    },
-    [isPanning]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    setIsPanning(false);
-  }, []);
-
-  // ── Right-click to go back ──
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      if (drillStack.length > 0) {
-        onBack();
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) setDimensions({ width, height });
       }
-    },
-    [drillStack, onBack]
-  );
-
-  // ── Node hover: tooltip ──
-  const handleNodeEnter = useCallback(
-    (node: GraphNode, e: React.MouseEvent) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      setHoveredId(node.id);
-      setTooltip({
-        node,
-        screenX: e.clientX - rect.left,
-        screenY: e.clientY - rect.top,
-      });
-    },
-    []
-  );
-
-  const handleNodeLeave = useCallback(() => {
-    setHoveredId(null);
-    setTooltip(null);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
-  // ── Double-click: drill down ──
-  const handleNodeDblClick = useCallback(
-    (node: GraphNode) => {
-      if (!node.isCenter) {
+  // Reset auto-fit when data changes
+  useEffect(() => { fittedRef.current = false; }, [data, currentDrill]);
+
+  // Configure D3 forces
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fg.d3Force("charge") as any)?.strength?.(-280);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fg.d3Force("link") as any)?.distance?.(120);
+    fg.d3ReheatSimulation();
+  }, [graphData]);
+
+  const handleEngineStop = useCallback(() => {
+    if (!fittedRef.current) {
+      fittedRef.current = true;
+      setTimeout(() => fgRef.current?.zoomToFit(400, 50), 100);
+    }
+  }, []);
+
+  // Node rendering on canvas
+  const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    const { x, y, label, name, isCenter } = node;
+    if (x == null || y == null) return;
+    const color = NODE_COLORS[label as string] || "#666";
+    const r = isCenter ? 14 : 9;
+
+    // Shadow
+    ctx.beginPath();
+    ctx.arc(x + 1, y + 2, r, 0, 2 * Math.PI);
+    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    ctx.fill();
+
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = isCenter ? 1 : 0.88;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    if (isCenter) {
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 2.5 / globalScale;
+      ctx.stroke();
+    }
+
+    // Type abbreviation inside node
+    const abbr = (label as string).slice(0, 3).toUpperCase();
+    const innerSize = Math.max(6 / globalScale, 3);
+    ctx.font = `bold ${innerSize}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "white";
+    ctx.fillText(abbr, x, y);
+
+    // Name below node
+    if (globalScale > 0.4) {
+      const labelSize = Math.max(9 / globalScale, 4);
+      ctx.font = `${isCenter ? "600 " : ""}${labelSize}px sans-serif`;
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "hsl(215 20% 65%)";
+      const displayName = name && name.length > 22 ? name.slice(0, 20) + "…" : (name || node.id);
+      ctx.fillText(displayName, x, y + r + 3 / globalScale);
+    }
+  }, []);
+
+  const nodePointerAreaPaint = useCallback((node: any, color: string, ctx: CanvasRenderingContext2D) => {
+    if (node.x == null || node.y == null) return;
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.isCenter ? 16 : 11, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }, []);
+
+  const linkColor = useCallback(() => "rgba(148,163,184,0.35)", []);
+
+  // Double-click detection
+  const handleNodeClick = useCallback((node: any) => {
+    clickCountRef.current += 1;
+    if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = setTimeout(() => {
+      if (clickCountRef.current >= 2 && !node.isCenter) {
         onDrillDown(node.id);
       }
-    },
-    [onDrillDown]
-  );
+      clickCountRef.current = 0;
+    }, 250);
+  }, [onDrillDown]);
 
-  // ── Zoom controls ──
-  const zoomIn = () =>
-    setTransform((prev) => ({ ...prev, k: Math.min(5, prev.k * 1.3) }));
-  const zoomOut = () =>
-    setTransform((prev) => ({ ...prev, k: Math.max(0.3, prev.k / 1.3) }));
-  const zoomReset = () => setTransform({ x: 0, y: 0, k: 1 });
+  const handleNodeHover = useCallback((node: any | null) => {
+    if (node && node.x != null) {
+      const screen = fgRef.current?.graph2ScreenCoords(node.x, node.y);
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (screen && rect) {
+        setTooltip({ node, x: screen.x - rect.left + 14, y: screen.y - rect.top - 10 });
+      }
+    } else {
+      setTooltip(null);
+    }
+  }, []);
 
-  // ── Get edges connected to hovered node ──
-  const hoveredEdges = useMemo(() => {
-    if (!hoveredId) return new Set<number>();
-    const s = new Set<number>();
-    edges.forEach((e, i) => {
-      if (e.source === hoveredId || e.target === hoveredId) s.add(i);
-    });
-    return s;
-  }, [hoveredId, edges]);
+  const handleZoomIn = useCallback(() => fgRef.current?.zoom(zoomRef.current * 1.4, 300), []);
+  const handleZoomOut = useCallback(() => fgRef.current?.zoom(zoomRef.current / 1.4, 300), []);
+  const handleFit = useCallback(() => fgRef.current?.zoomToFit(300, 40), []);
+  const handleZoom = useCallback((t: { k: number }) => { zoomRef.current = t.k; }, []);
 
-  if (positioned.length === 0) {
+  if (graphData.nodes.length === 0) {
     return (
-      <div className="h-[500px] flex items-center justify-center text-muted-foreground text-sm">
+      <div className="h-[520px] flex items-center justify-center text-muted-foreground text-sm">
         <div className="text-center">
           <Building2 className="w-10 h-10 mx-auto mb-3 opacity-20" />
           <p>No hay datos para visualizar</p>
@@ -407,66 +325,45 @@ function GraphVisualization({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full"
-      style={{ height: "520px" }}
-      onContextMenu={handleContextMenu}
-    >
-      {/* Toolbar */}
-      <div className="absolute top-3 left-3 z-20 flex gap-1">
-        {drillStack.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onBack}
-            className="h-8 px-2.5 text-xs gap-1 bg-background/90 backdrop-blur"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-            Atrás
+    <div className="relative w-full" style={{ height: "520px" }}>
+      {/* Back button */}
+      {drillStack.length > 0 && (
+        <div className="absolute top-3 left-3 z-20">
+          <Button variant="outline" size="sm" onClick={onBack} className="h-8 px-2.5 text-xs gap-1 bg-background/90 backdrop-blur">
+            <ChevronLeft className="w-3.5 h-3.5" /> Atrás
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
+      {/* Zoom controls */}
       <div className="absolute top-3 right-3 z-20 flex flex-col gap-1">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={zoomIn}
-          className="h-7 w-7 bg-background/90 backdrop-blur"
-        >
+        <Button variant="outline" size="icon" onClick={handleZoomIn} className="h-7 w-7 bg-background/90 backdrop-blur">
           <ZoomIn className="w-3.5 h-3.5" />
         </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={zoomOut}
-          className="h-7 w-7 bg-background/90 backdrop-blur"
-        >
+        <Button variant="outline" size="icon" onClick={handleZoomOut} className="h-7 w-7 bg-background/90 backdrop-blur">
           <ZoomOut className="w-3.5 h-3.5" />
         </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={zoomReset}
-          className="h-7 w-7 bg-background/90 backdrop-blur"
-        >
+        <Button variant="outline" size="icon" onClick={handleFit} className="h-7 w-7 bg-background/90 backdrop-blur">
           <Maximize2 className="w-3.5 h-3.5" />
         </Button>
       </div>
 
-      {/* Breadcrumb / drill path */}
+      {/* Hint */}
+      {drillStack.length === 0 && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 text-[10px] text-muted-foreground bg-background/80 backdrop-blur rounded px-2 py-1 flex items-center gap-1.5">
+          <MousePointerClick className="w-3 h-3" /> Doble clic para explorar · Rueda para zoom
+        </div>
+      )}
+
+      {/* Breadcrumb */}
       {drillStack.length > 0 && (
-        <div className="absolute bottom-3 left-3 right-3 z-20">
+        <div className="absolute bottom-3 left-3 right-12 z-20">
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground bg-background/90 backdrop-blur rounded-md px-2.5 py-1.5 overflow-x-auto">
             <span className="opacity-60">Raíz</span>
             {drillStack.map((d, i) => (
-              <span key={i} className="flex items-center gap-1.5">
+              <span key={i} className="flex items-center gap-1.5 shrink-0">
                 <span className="opacity-40">›</span>
-                <span
-                  className="font-medium truncate max-w-[140px]"
-                  style={{ color: NODE_COLORS[d.data.center.label] || "#666" }}
-                >
+                <span className="font-medium" style={{ color: NODE_COLORS[d.data.center.label] || "#666" }}>
                   {d.data.center.name}
                 </span>
               </span>
@@ -475,256 +372,53 @@ function GraphVisualization({
         </div>
       )}
 
-      {/* Hint */}
-      {drillStack.length === 0 && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 text-[10px] text-muted-foreground bg-background/80 backdrop-blur rounded px-2 py-1 flex items-center gap-1.5">
-          <MousePointerClick className="w-3 h-3" />
-          Doble clic para explorar · Clic derecho para volver
-        </div>
-      )}
-
-      {/* SVG Canvas */}
-      <svg
-        ref={svgRef}
-        className="w-full h-full"
-        style={{ cursor: isPanning ? "grabbing" : "grab" }}
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        <defs>
-          <marker
-            id="arrow"
-            markerWidth="8"
-            markerHeight="6"
-            refX="8"
-            refY="3"
-            orient="auto"
-          >
-            <polygon
-              points="0 0, 8 3, 0 6"
-              fill="hsl(var(--muted-foreground))"
-              opacity="0.3"
-            />
-          </marker>
-          <marker
-            id="arrow-active"
-            markerWidth="8"
-            markerHeight="6"
-            refX="8"
-            refY="3"
-            orient="auto"
-          >
-            <polygon
-              points="0 0, 8 3, 0 6"
-              fill="hsl(var(--foreground))"
-              opacity="0.6"
-            />
-          </marker>
-          {/* Glow filter for hovered nodes */}
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        <g
-          transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}
-        >
-          {/* Edges */}
-          {edges.map((edge, i) => {
-            const from = posMap.get(edge.source);
-            const to = posMap.get(edge.target);
-            if (!from || !to) return null;
-            const isHighlighted = hoveredEdges.has(i);
-            // Offset for edge label
-            const mx = (from.x + to.x) / 2;
-            const my = (from.y + to.y) / 2;
-            // Perpendicular offset for label
-            const dx = to.x - from.x;
-            const dy = to.y - from.y;
-            const len = Math.sqrt(dx * dx + dy * dy) || 1;
-            const ox = (-dy / len) * 8;
-            const oy = (dx / len) * 8;
-
-            return (
-              <g key={`e-${i}`}>
-                <line
-                  x1={from.x}
-                  y1={from.y}
-                  x2={to.x}
-                  y2={to.y}
-                  stroke={isHighlighted ? "hsl(var(--foreground))" : "hsl(var(--border))"}
-                  strokeWidth={isHighlighted ? 2 : 1.2}
-                  strokeOpacity={hoveredId && !isHighlighted ? 0.15 : isHighlighted ? 0.7 : 0.4}
-                  markerEnd={isHighlighted ? "url(#arrow-active)" : "url(#arrow)"}
-                  style={{ transition: "stroke-opacity 0.15s, stroke-width 0.15s" }}
-                />
-                <text
-                  x={mx + ox}
-                  y={my + oy}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  className="select-none pointer-events-none"
-                  fill={isHighlighted ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))"}
-                  fontSize={9}
-                  fontWeight={isHighlighted ? 600 : 400}
-                  opacity={hoveredId && !isHighlighted ? 0.1 : isHighlighted ? 0.9 : 0.5}
-                  style={{ transition: "opacity 0.15s" }}
-                >
-                  {EDGE_LABELS_ES[edge.type] || edge.type.replace(/_/g, " ")}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Nodes */}
-          {positioned.map((node) => {
-            const color = NODE_COLORS[node.label] || "#666";
-            const dimmed = hoveredId && hoveredId !== node.id && !hoveredEdges.size
-              ? true
-              : hoveredId && hoveredId !== node.id &&
-                !edges.some(
-                  (e) =>
-                    (e.source === hoveredId && e.target === node.id) ||
-                    (e.target === hoveredId && e.source === node.id)
-                );
-            const isHovered = hoveredId === node.id;
-
-            return (
-              <g
-                key={node.id}
-                data-node-id={node.id}
-                style={{ cursor: node.isCenter ? "default" : "pointer" }}
-                onMouseEnter={(e) => handleNodeEnter(node, e)}
-                onMouseLeave={handleNodeLeave}
-                onDoubleClick={() => handleNodeDblClick(node)}
-              >
-                {/* Hover ring */}
-                {isHovered && !node.isCenter && (
-                  <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={node.r + 6}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={2}
-                    strokeDasharray="4 3"
-                    opacity={0.6}
-                  >
-                    <animate
-                      attributeName="stroke-dashoffset"
-                      from="0"
-                      to="14"
-                      dur="1s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                )}
-                {/* Shadow */}
-                <circle
-                  cx={node.x + 1}
-                  cy={node.y + 2}
-                  r={node.r}
-                  fill="black"
-                  opacity={0.12}
-                />
-                {/* Main circle */}
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r={node.r}
-                  fill={color}
-                  opacity={dimmed ? 0.25 : node.isCenter ? 1 : 0.85}
-                  stroke={node.isCenter ? "white" : isHovered ? "white" : "none"}
-                  strokeWidth={node.isCenter ? 3 : isHovered ? 2 : 0}
-                  filter={isHovered ? "url(#glow)" : undefined}
-                  style={{ transition: "opacity 0.15s" }}
-                />
-                {/* Label inside circle */}
-                <text
-                  x={node.x}
-                  y={node.y + 1}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill="white"
-                  fontSize={node.isCenter ? 10 : 8}
-                  fontWeight={700}
-                  className="select-none pointer-events-none"
-                  opacity={dimmed ? 0.3 : 1}
-                >
-                  {node.label.slice(0, 3).toUpperCase()}
-                </text>
-                {/* Name below */}
-                <text
-                  x={node.x}
-                  y={node.y + node.r + 13}
-                  textAnchor="middle"
-                  fill="hsl(var(--foreground))"
-                  fontSize={10}
-                  fontWeight={isHovered ? 600 : 500}
-                  className="select-none pointer-events-none"
-                  opacity={dimmed ? 0.2 : 1}
-                  style={{ transition: "opacity 0.15s" }}
-                >
-                  {node.name.length > 26 ? node.name.slice(0, 24) + "…" : node.name}
-                </text>
-              </g>
-            );
-          })}
-        </g>
-      </svg>
+      {/* ForceGraph canvas */}
+      <div ref={containerRef} className="w-full h-full">
+        <ForceGraph2D
+          ref={fgRef}
+          width={dimensions.width}
+          height={dimensions.height}
+          graphData={graphData}
+          nodeLabel=""
+          nodeCanvasObject={nodeCanvasObject}
+          nodeCanvasObjectMode={() => "replace"}
+          nodePointerAreaPaint={nodePointerAreaPaint}
+          linkColor={linkColor}
+          linkWidth={1.5}
+          linkDirectionalArrowLength={4}
+          linkDirectionalArrowRelPos={0.85}
+          onNodeClick={handleNodeClick}
+          onNodeHover={handleNodeHover}
+          onZoom={handleZoom}
+          backgroundColor="rgba(0,0,0,0)"
+          cooldownTime={3000}
+          d3AlphaDecay={0.03}
+          d3VelocityDecay={0.4}
+          warmupTicks={20}
+          onEngineStop={handleEngineStop}
+        />
+      </div>
 
       {/* Tooltip */}
       {tooltip && (
         <div
           className="absolute z-30 pointer-events-none"
           style={{
-            left: Math.min(tooltip.screenX + 14, (containerRef.current?.offsetWidth || 800) - 260),
-            top: Math.max(tooltip.screenY - 10, 8),
+            left: Math.min(tooltip.x, dimensions.width - 260),
+            top: Math.max(tooltip.y, 8),
           }}
         >
           <div className="bg-popover border border-border rounded-lg shadow-xl p-3 min-w-[200px] max-w-[260px]">
             <div className="flex items-center gap-2 mb-1.5">
-              <div
-                className="w-3 h-3 rounded-full shrink-0"
-                style={{ background: NODE_COLORS[tooltip.node.label] || "#666" }}
-              />
+              <div className="w-3 h-3 rounded-full shrink-0" style={{ background: NODE_COLORS[tooltip.node.label] || "#666" }} />
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {NODE_LABELS_ES[tooltip.node.label] || tooltip.node.label}
               </span>
             </div>
             <p className="text-sm font-semibold leading-snug">{tooltip.node.name}</p>
-            {/* Properties */}
-            {Object.entries(tooltip.node.properties).length > 0 && (
-              <div className="mt-2 space-y-0.5">
-                {Object.entries(tooltip.node.properties)
-                  .filter(([k]) => !["labels", "_source", "id", "name", "title", "debtor_name"].includes(k))
-                  .slice(0, 5)
-                  .map(([key, val]) => {
-                    const formatted = (key === "amount" || key === "importe") ? formatAmount(val) : null;
-                    return (
-                      <div key={key} className="flex items-center justify-between text-[11px]">
-                        <span className="text-muted-foreground capitalize">
-                          {PROP_KEYS_ES[key] || key.replace(/_/g, " ")}
-                        </span>
-                        <span className="font-medium ml-2 truncate max-w-[120px]">
-                          {formatted || String(val)}
-                        </span>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
             {!tooltip.node.isCenter && (
               <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
-                <MousePointerClick className="w-2.5 h-2.5" />
-                Doble clic para explorar
+                <MousePointerClick className="w-2.5 h-2.5" /> Doble clic para explorar
               </p>
             )}
           </div>
@@ -733,7 +427,6 @@ function GraphVisualization({
     </div>
   );
 }
-
 // ── Main Page Component ──
 export default function CompanyGraph() {
   const params = useParams<{ nif?: string; drillId?: string }>();
@@ -783,8 +476,6 @@ export default function CompanyGraph() {
     }
   }, [drillParam, initialDrillDone]);
 
-  const { toast } = useToast();
-
   // Drill down into a node (uses client-side data, works on static deploy)
   const handleDrillDown = useCallback(async (nodeId: string) => {
     // Try client-side mock data first (works on static deploy)
@@ -804,13 +495,7 @@ export default function CompanyGraph() {
     } catch {
       // API unavailable (static deploy) — already tried client-side above
     }
-    // Node exists but has no further connections to explore
-    toast({
-      title: "Sin conexiones adicionales",
-      description: `No hay más datos de subgrafo disponibles para este nodo.`,
-      duration: 3000,
-    });
-  }, [toast]);
+  }, []);
 
   // Go back one level
   const handleBack = useCallback(() => {
