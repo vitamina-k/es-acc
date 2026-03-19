@@ -15,11 +15,13 @@ import {
   X,
   Github,
   Eye,
+  Zap,
 } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import SearchPage from "@/pages/search-page";
 import CompanyGraph from "@/pages/company-graph";
 import SourcesPage from "@/pages/sources-page";
+import EdicionPage from "@/pages/edicion";
 import NotFound from "@/pages/not-found";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 
@@ -54,11 +56,19 @@ function AppLayout() {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
+  const isEdicion = location === "/edicion" || location.startsWith("/edicion/");
+
+  // Edición page has its own layout — render it standalone
+  if (isEdicion) {
+    return <EdicionPage />;
+  }
+
   const nav = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/search", label: "Buscar", icon: Search },
     { href: "/graph", label: "Explorador", icon: Eye },
     { href: "/sources", label: "Fuentes", icon: Database },
+    { href: "/edicion", label: "Edición", icon: Zap },
   ];
 
   return (
