@@ -738,6 +738,7 @@ export default function CompanyGraph() {
   const params = useParams<{ nif?: string; drillId?: string }>();
   // drillId is base64-encoded to avoid URL issues with colons
   const drillParam = params.drillId ? (() => { try { return atob(params.drillId!); } catch { return null; } })() : null;
+  const hasRealNif = !!params.nif;
   const [nifInput, setNifInput] = useState(params.nif || "B12345678");
   const [activeNif, setActiveNif] = useState(params.nif || "B12345678");
   const [drillStack, setDrillStack] = useState<DrillState[]>([]);
@@ -758,7 +759,8 @@ export default function CompanyGraph() {
       apiRequest("GET", `/api/v1/public/patterns/company/${activeNif}`).then(
         (r) => r.json()
       ),
-    enabled: !!activeNif,
+    // Don't fetch patterns for the default NIF when in drill mode (no real NIF)
+    enabled: !!activeNif && (hasRealNif || drillStack.length === 0),
   });
 
   const handleSearch = (e: React.FormEvent) => {
@@ -962,8 +964,8 @@ export default function CompanyGraph() {
             </Card>
           )}
 
-          {/* Risk score */}
-          <Card>
+          {/* Risk score — hide when in drill mode without a real NIF to avoid showing unrelated data */}
+          {(hasRealNif || drillStack.length === 0) && <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <Shield className="w-4 h-4" />
@@ -1046,7 +1048,7 @@ export default function CompanyGraph() {
                 </>
               ) : null}
             </CardContent>
-          </Card>
+          </Card>}
         </div>
       </div>
     </div>
