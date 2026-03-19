@@ -224,7 +224,96 @@ export const NODE_SUBGRAPHS: Record<string, NodeSubgraph> = {
   },
 };
 
+// ── Reverse-index builder: finds all connections to a node across ALL subgraphs ──
+function buildDynamicSubgraph(nodeId: string): NodeSubgraph | null {
+  // Collect every node and edge that references this nodeId across all subgraphs
+  const connectedNodes = new Map<string, NodeSubgraph['nodes'][number]>();
+  const connectedEdges: NodeSubgraph['edges'] = [];
+  let centerInfo: { label: string; name: string; properties: Record<string, unknown> } | null = null;
+
+  for (const [_key, sg] of Object.entries(NODE_SUBGRAPHS)) {
+    // Check if this nodeId appears as the center of any subgraph
+    if (sg.center.id === nodeId) {
+      centerInfo = { label: sg.center.label, name: sg.center.name, properties: sg.center.properties };
+    }
+    // Check if this nodeId appears in the nodes array
+    for (const n of sg.nodes) {
+      if (n.id === nodeId && !centerInfo) {
+        centerInfo = { label: n.label, name: n.name, properties: n.properties };
+      }
+    }
+    // Check all edges for connections to/from this nodeId
+    for (const edge of sg.edges) {
+      if (edge.source === nodeId || edge.target === nodeId) {
+        // Add the edge
+        const edgeKey = `${edge.source}-${edge.target}-${edge.type}`;
+        if (!connectedEdges.some(e => `${e.source}-${e.target}-${e.type}` === edgeKey)) {
+          connectedEdges.push(edge);
+        }
+        // Add the OTHER node (not this one)
+        const otherId = edge.source === nodeId ? edge.target : edge.source;
+        if (!connectedNodes.has(otherId)) {
+          // Find the other node's info
+          const otherAsCenterSg = NODE_SUBGRAPHS[otherId];
+          if (otherAsCenterSg) {
+            connectedNodes.set(otherId, { id: otherId, label: otherAsCenterSg.center.label, name: otherAsCenterSg.center.name, properties: otherAsCenterSg.center.properties });
+          } else {
+            // Search in all subgraph nodes
+            for (const [, sg2] of Object.entries(NODE_SUBGRAPHS)) {
+              if (sg2.center.id === otherId) {
+                connectedNodes.set(otherId, { id: otherId, label: sg2.center.label, name: sg2.center.name, properties: sg2.center.properties });
+                break;
+              }
+              const found = sg2.nodes.find(n => n.id === otherId);
+              if (found) {
+                connectedNodes.set(otherId, found);
+                break;
+              }
+            }
+            // If still not found, derive from ID prefix
+            if (!connectedNodes.has(otherId)) {
+              connectedNodes.set(otherId, { id: otherId, label: inferLabel(otherId), name: otherId, properties: {} });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // If we didn't find any connections at all, return null
+  if (!centerInfo && connectedEdges.length === 0) return null;
+
+  // If we found edges but no center info, infer from the nodeId
+  if (!centerInfo) {
+    centerInfo = { label: inferLabel(nodeId), name: nodeId, properties: {} };
+  }
+
+  return {
+    center: { id: nodeId, ...centerInfo },
+    nodes: Array.from(connectedNodes.values()),
+    edges: connectedEdges,
+  };
+}
+
+// Infer a label from a node ID prefix
+function inferLabel(id: string): string {
+  if (id.startsWith('congreso:') || id.startsWith('boe_pep:') || id.startsWith('person:') || id.startsWith('eurodiputados:')) return 'Person';
+  if (id.startsWith('pg:')) return 'PoliticalGroup';
+  if (id.startsWith('org:')) return 'PublicOrgan';
+  if (id.startsWith('off:')) return 'PublicOffice';
+  if (id.startsWith('contract:')) return 'Contract';
+  if (id.startsWith('grant:')) return 'Grant';
+  if (id.startsWith('debt:')) return 'TaxDebt';
+  if (id.startsWith('sanc:')) return 'Sanction';
+  if (id.startsWith('inv:')) return 'Investigation';
+  if (/^[A-Z]\d{7,8}$/.test(id)) return 'Company';
+  if (/^[BN]\d{7,8}$/.test(id)) return 'Company';
+  return 'Entity';
+}
+
 // Look up subgraph for a node (client-side, no API needed)
+// 1. Check hardcoded subgraphs first
+// 2. Fallback: reverse-search all existing subgraph data to build a dynamic subgraph
 export function getNodeSubgraph(nodeId: string): NodeSubgraph | null {
-  return NODE_SUBGRAPHS[nodeId] || null;
+  return NODE_SUBGRAPHS[nodeId] || buildDynamicSubgraph(nodeId);
 }

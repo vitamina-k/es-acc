@@ -320,6 +320,69 @@ const MOCK_SEARCH: SearchResultApi[] = [
   { id: "B12345678", label: "Company", name: "Construcciones Ibéricas S.L.", snippet: "Madrid — Activa — 2 contratos públicos, 1 deuda AEAT (demo)", score: 0.50 },
 ];
 
+// ── Dynamic subgraph builder: reverse-searches all mock subgraphs for connections to a node ──
+function inferNodeLabel(id: string): string {
+  if (id.startsWith('congreso:') || id.startsWith('boe_pep:') || id.startsWith('person:') || id.startsWith('eurodiputados:')) return 'Person';
+  if (id.startsWith('pg:')) return 'PoliticalGroup';
+  if (id.startsWith('org:')) return 'PublicOrgan';
+  if (id.startsWith('off:')) return 'PublicOffice';
+  if (id.startsWith('contract:')) return 'Contract';
+  if (id.startsWith('grant:')) return 'Grant';
+  if (id.startsWith('debt:')) return 'TaxDebt';
+  if (id.startsWith('sanc:')) return 'Sanction';
+  if (id.startsWith('inv:')) return 'Investigation';
+  if (/^[A-BN]\d{7,8}$/.test(id)) return 'Company';
+  return 'Entity';
+}
+
+function buildDynamicNodeSubgraph(nodeId: string): NodeSubgraph | null {
+  const connectedNodes = new Map<string, NodeSubgraph['nodes'][number]>();
+  const connectedEdges: NodeSubgraph['edges'] = [];
+  let centerInfo: { label: string; name: string; properties: Record<string, unknown> } | null = null;
+
+  for (const sg of Object.values(MOCK_NODE_SUBGRAPHS)) {
+    if (sg.center.id === nodeId) {
+      centerInfo = { label: sg.center.label, name: sg.center.name, properties: sg.center.properties };
+    }
+    for (const n of sg.nodes) {
+      if (n.id === nodeId && !centerInfo) {
+        centerInfo = { label: n.label, name: n.name, properties: n.properties };
+      }
+    }
+    for (const edge of sg.edges) {
+      if (edge.source === nodeId || edge.target === nodeId) {
+        const edgeKey = `${edge.source}-${edge.target}-${edge.type}`;
+        if (!connectedEdges.some(e => `${e.source}-${e.target}-${e.type}` === edgeKey)) {
+          connectedEdges.push(edge);
+        }
+        const otherId = edge.source === nodeId ? edge.target : edge.source;
+        if (!connectedNodes.has(otherId)) {
+          const otherSg = MOCK_NODE_SUBGRAPHS[otherId];
+          if (otherSg) {
+            connectedNodes.set(otherId, { id: otherId, label: otherSg.center.label, name: otherSg.center.name, properties: otherSg.center.properties });
+          } else {
+            for (const sg2 of Object.values(MOCK_NODE_SUBGRAPHS)) {
+              if (sg2.center.id === otherId) { connectedNodes.set(otherId, { id: otherId, label: sg2.center.label, name: sg2.center.name, properties: sg2.center.properties }); break; }
+              const found = sg2.nodes.find(n => n.id === otherId);
+              if (found) { connectedNodes.set(otherId, found); break; }
+            }
+            if (!connectedNodes.has(otherId)) {
+              const searchEntry = MOCK_SEARCH.find(s => s.id === otherId);
+              connectedNodes.set(otherId, { id: otherId, label: searchEntry?.label || inferNodeLabel(otherId), name: searchEntry?.name || otherId, properties: {} });
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!centerInfo && connectedEdges.length === 0) return null;
+  if (!centerInfo) {
+    const searchEntry = MOCK_SEARCH.find(s => s.id === nodeId);
+    centerInfo = { label: searchEntry?.label || inferNodeLabel(nodeId), name: searchEntry?.name || nodeId, properties: {} };
+  }
+  return { center: { id: nodeId, ...centerInfo }, nodes: Array.from(connectedNodes.values()), edges: connectedEdges };
+}
+
 export async function registerRoutes(server: Server, app: Express) {
   // Health
   app.get("/api/health", (_req, res) => {
@@ -348,18 +411,19 @@ export async function registerRoutes(server: Server, app: Express) {
   // Node subgraph (drill-down from any node)
   app.get("/api/v1/public/graph/node/:id", (req, res) => {
     const id = req.params.id;
+    // 1. Hardcoded subgraph
     const data = MOCK_NODE_SUBGRAPHS[id];
-    if (data) {
-      res.json(data);
-    } else {
-      // Generate a minimal placeholder subgraph
-      const searchEntry = MOCK_SEARCH.find((s) => s.id === id);
-      res.json({
-        center: { id, label: searchEntry?.label || "Unknown", name: searchEntry?.name || id, properties: {} },
-        nodes: [],
-        edges: [],
-      });
-    }
+    if (data) { res.json(data); return; }
+    // 2. Dynamic reverse-search across all subgraphs
+    const dynamic = buildDynamicNodeSubgraph(id);
+    if (dynamic) { res.json(dynamic); return; }
+    // 3. Minimal placeholder
+    const searchEntry = MOCK_SEARCH.find((s) => s.id === id);
+    res.json({
+      center: { id, label: searchEntry?.label || "Unknown", name: searchEntry?.name || id, properties: {} },
+      nodes: [],
+      edges: [],
+    });
   });
 
   // Patterns

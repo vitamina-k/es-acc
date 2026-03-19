@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 import {
   Search,
@@ -782,6 +783,8 @@ export default function CompanyGraph() {
     }
   }, [drillParam, initialDrillDone]);
 
+  const { toast } = useToast();
+
   // Drill down into a node (uses client-side data, works on static deploy)
   const handleDrillDown = useCallback(async (nodeId: string) => {
     // Try client-side mock data first (works on static deploy)
@@ -796,11 +799,18 @@ export default function CompanyGraph() {
       const data: NodeSubgraph = await resp.json();
       if (data.nodes && data.nodes.length > 0) {
         setDrillStack((prev) => [...prev, { nodeId, data }]);
+        return;
       }
     } catch {
-      // No subgraph data available for this node
+      // API unavailable (static deploy) — already tried client-side above
     }
-  }, []);
+    // Node exists but has no further connections to explore
+    toast({
+      title: "Sin conexiones adicionales",
+      description: `No hay más datos de subgrafo disponibles para este nodo.`,
+      duration: 3000,
+    });
+  }, [toast]);
 
   // Go back one level
   const handleBack = useCallback(() => {
