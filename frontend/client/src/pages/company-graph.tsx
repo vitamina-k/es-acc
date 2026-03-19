@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useParams } from "wouter";
@@ -21,9 +21,14 @@ import {
   Globe,
   Banknote,
   Eye,
-  ArrowRight,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  ChevronLeft,
+  MousePointerClick,
 } from "lucide-react";
 
+// ── Node styling ──
 const NODE_COLORS: Record<string, string> = {
   Company: "#3b82f6",
   Person: "#f59e0b",
@@ -34,18 +39,20 @@ const NODE_COLORS: Record<string, string> = {
   PoliticalGroup: "#ec4899",
   PublicOrgan: "#6366f1",
   TaxDebt: "#f97316",
+  Investigation: "#dc2626",
 };
 
-const NODE_ICONS: Record<string, typeof Building2> = {
-  Company: Building2,
-  Person: User,
-  Contract: FileText,
-  Grant: Banknote,
-  Sanction: AlertTriangle,
-  PublicOffice: Landmark,
-  PoliticalGroup: Scale,
-  PublicOrgan: Globe,
-  TaxDebt: Shield,
+const NODE_LABELS_ES: Record<string, string> = {
+  Company: "Empresa",
+  Person: "Persona",
+  Contract: "Contrato",
+  Grant: "Subvención",
+  Sanction: "Sanción",
+  PublicOffice: "Cargo Público",
+  PoliticalGroup: "Grupo Político",
+  PublicOrgan: "Órgano Público",
+  TaxDebt: "Deuda Fiscal",
+  Investigation: "Investigación",
 };
 
 const SEVERITY_STYLES: Record<string, string> = {
@@ -54,134 +61,685 @@ const SEVERITY_STYLES: Record<string, string> = {
   low: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
 };
 
-function GraphVisualization({ data }: { data: SubgraphResponse }) {
-  // Canvas-based simple force-directed graph visualization
-  const allNodes = [
-    { id: data.center.nif, label: "Company", name: data.center.name },
-    ...data.nodes.map((n) => ({
-      id: n.id as string,
-      label: ((n.labels as string[]) || [])[0] || "Unknown",
-      name: (n.name || n.title || n.debtor_name || n.role || "Sin nombre") as string,
-    })),
-  ];
+// ── Types ──
+interface GraphNode {
+  id: string;
+  label: string;
+  name: string;
+  x: number;
+  y: number;
+  r: number;
+  isCenter: boolean;
+  properties: Record<string, unknown>;
+}
 
-  // Position nodes in a radial layout
-  const cx = 400;
-  const cy = 250;
-  const radius = 180;
+interface GraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  properties: Record<string, unknown>;
+}
 
-  const positions = allNodes.map((n, i) => {
-    if (i === 0) return { ...n, x: cx, y: cy };
-    const angle = ((i - 1) / (allNodes.length - 1)) * 2 * Math.PI;
-    return {
-      ...n,
-      x: cx + radius * Math.cos(angle),
-      y: cy + radius * Math.sin(angle),
-    };
-  });
+interface NodeSubgraph {
+  center: { id: string; label: string; name: string; properties: Record<string, unknown> };
+  nodes: Array<{ id: string; label: string; name: string; properties: Record<string, unknown> }>;
+  edges: Array<{ source: string; target: string; type: string; properties: Record<string, unknown> }>;
+}
 
-  const posMap = new Map(positions.map((p) => [p.id, p]));
+interface DrillState {
+  nodeId: string;
+  data: NodeSubgraph;
+}
+
+// ── Format money ──
+function formatAmount(v: unknown): string | null {
+  if (typeof v !== "number" || v === 0) return null;
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)} mil M€`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)} M€`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(0)} k€`;
+  return `${v.toLocaleString("es-ES")} €`;
+}
+
+// ── Graph Visualization (zoomable, interactive) ──
+function GraphVisualization({
+  data,
+  onDrillDown,
+  drillStack,
+  onBack,
+}: {
+  data: SubgraphResponse | null;
+  onDrillDown: (nodeId: string) => void;
+  drillStack: DrillState[];
+  onBack: () => void;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Transform state (zoom + pan)
+  const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
+
+  // Tooltip state
+  const [tooltip, setTooltip] = useState<{
+    node: GraphNode;
+    screenX: number;
+    screenY: number;
+  } | null>(null);
+
+  // Hovered node
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  // Current drill state
+  const currentDrill = drillStack.length > 0 ? drillStack[drillStack.length - 1] : null;
+
+  // Build node & edge lists from either drill data or company subgraph
+  const { nodes, edges } = useMemo(() => {
+    if (currentDrill) {
+      const d = currentDrill.data;
+      const allNodes = [
+        { id: d.center.id, label: d.center.label, name: d.center.name, properties: d.center.properties },
+        ...d.nodes.map((n) => ({ id: n.id, label: n.label, name: n.name, properties: n.properties })),
+      ];
+      return { nodes: allNodes, edges: d.edges };
+    }
+    if (!data) return { nodes: [], edges: [] };
+    const allNodes = [
+      { id: data.center.nif, label: "Company", name: data.center.name, properties: {} as Record<string, unknown> },
+      ...data.nodes.map((n) => ({
+        id: n.id as string,
+        label: ((n.labels as string[]) || [])[0] || "Unknown",
+        name: (n.name || n.title || n.debtor_name || n.role || "Sin nombre") as string,
+        properties: n as Record<string, unknown>,
+      })),
+    ];
+    const edgeList = data.edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      type: e.type,
+      properties: e.properties,
+    }));
+    return { nodes: allNodes, edges: edgeList };
+  }, [data, currentDrill]);
+
+  // Compute positions (force-like radial layout)
+  const positioned = useMemo<GraphNode[]>(() => {
+    if (nodes.length === 0) return [];
+    const cx = 450;
+    const cy = 300;
+    // Group by label for layered radial
+    const groups = new Map<string, typeof nodes>();
+    nodes.forEach((n, i) => {
+      if (i === 0) return; // center
+      const g = groups.get(n.label) || [];
+      g.push(n);
+      groups.set(n.label, g);
+    });
+
+    const result: GraphNode[] = [];
+    // Center node
+    result.push({ ...nodes[0], x: cx, y: cy, r: 30, isCenter: true, properties: nodes[0].properties || {} });
+
+    // Distribute groups in concentric arcs
+    let groupIdx = 0;
+    const totalGroups = groups.size || 1;
+    groups.forEach((members, _label) => {
+      const baseAngle = (groupIdx / totalGroups) * 2 * Math.PI - Math.PI / 2;
+      const spread = Math.min(((2 * Math.PI) / totalGroups) * 0.85, Math.PI);
+      members.forEach((n, mi) => {
+        const angleOffset =
+          members.length === 1
+            ? 0
+            : ((mi / (members.length - 1)) - 0.5) * spread;
+        const angle = baseAngle + angleOffset;
+        const radius = 160 + (mi % 2) * 40; // stagger
+        result.push({
+          ...n,
+          x: cx + radius * Math.cos(angle),
+          y: cy + radius * Math.sin(angle),
+          r: 22,
+          isCenter: false,
+          properties: n.properties || {},
+        });
+      });
+      groupIdx++;
+    });
+    return result;
+  }, [nodes]);
+
+  const posMap = useMemo(() => new Map(positioned.map((p) => [p.id, p])), [positioned]);
+
+  // Reset transform when drill changes
+  useEffect(() => {
+    setTransform({ x: 0, y: 0, k: 1 });
+    setTooltip(null);
+    setHoveredId(null);
+  }, [currentDrill, data]);
+
+  // ── Zoom with scroll wheel ──
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      const svg = svgRef.current;
+      if (!svg) return;
+      const rect = svg.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const scaleFactor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const newK = Math.max(0.3, Math.min(5, transform.k * scaleFactor));
+
+      // Zoom towards mouse
+      const dx = mouseX - transform.x;
+      const dy = mouseY - transform.y;
+      setTransform({
+        k: newK,
+        x: mouseX - dx * (newK / transform.k),
+        y: mouseY - dy * (newK / transform.k),
+      });
+      setTooltip(null);
+    },
+    [transform]
+  );
+
+  // ── Pan with mouse drag ──
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return; // left button only for pan
+      // Check if clicking on a node — don't start pan
+      const target = e.target as SVGElement;
+      if (target.closest("[data-node-id]")) return;
+      setIsPanning(true);
+      panStart.current = { x: e.clientX, y: e.clientY, tx: transform.x, ty: transform.y };
+    },
+    [transform]
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStart.current.x;
+      const dy = e.clientY - panStart.current.y;
+      setTransform((prev) => ({
+        ...prev,
+        x: panStart.current.tx + dx,
+        y: panStart.current.ty + dy,
+      }));
+    },
+    [isPanning]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  // ── Right-click to go back ──
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (drillStack.length > 0) {
+        onBack();
+      }
+    },
+    [drillStack, onBack]
+  );
+
+  // ── Node hover: tooltip ──
+  const handleNodeEnter = useCallback(
+    (node: GraphNode, e: React.MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      setHoveredId(node.id);
+      setTooltip({
+        node,
+        screenX: e.clientX - rect.left,
+        screenY: e.clientY - rect.top,
+      });
+    },
+    []
+  );
+
+  const handleNodeLeave = useCallback(() => {
+    setHoveredId(null);
+    setTooltip(null);
+  }, []);
+
+  // ── Double-click: drill down ──
+  const handleNodeDblClick = useCallback(
+    (node: GraphNode) => {
+      if (!node.isCenter) {
+        onDrillDown(node.id);
+      }
+    },
+    [onDrillDown]
+  );
+
+  // ── Zoom controls ──
+  const zoomIn = () =>
+    setTransform((prev) => ({ ...prev, k: Math.min(5, prev.k * 1.3) }));
+  const zoomOut = () =>
+    setTransform((prev) => ({ ...prev, k: Math.max(0.3, prev.k / 1.3) }));
+  const zoomReset = () => setTransform({ x: 0, y: 0, k: 1 });
+
+  // ── Get edges connected to hovered node ──
+  const hoveredEdges = useMemo(() => {
+    if (!hoveredId) return new Set<number>();
+    const s = new Set<number>();
+    edges.forEach((e, i) => {
+      if (e.source === hoveredId || e.target === hoveredId) s.add(i);
+    });
+    return s;
+  }, [hoveredId, edges]);
+
+  if (positioned.length === 0) {
+    return (
+      <div className="h-[500px] flex items-center justify-center text-muted-foreground text-sm">
+        <div className="text-center">
+          <Building2 className="w-10 h-10 mx-auto mb-3 opacity-20" />
+          <p>No hay datos para visualizar</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox="0 0 800 500" className="w-full h-auto min-h-[400px]" style={{ maxHeight: "500px" }}>
+    <div
+      ref={containerRef}
+      className="relative w-full"
+      style={{ height: "520px" }}
+      onContextMenu={handleContextMenu}
+    >
+      {/* Toolbar */}
+      <div className="absolute top-3 left-3 z-20 flex gap-1">
+        {drillStack.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            className="h-8 px-2.5 text-xs gap-1 bg-background/90 backdrop-blur"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            Atrás
+          </Button>
+        )}
+      </div>
+
+      <div className="absolute top-3 right-3 z-20 flex flex-col gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={zoomIn}
+          className="h-7 w-7 bg-background/90 backdrop-blur"
+        >
+          <ZoomIn className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={zoomOut}
+          className="h-7 w-7 bg-background/90 backdrop-blur"
+        >
+          <ZoomOut className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={zoomReset}
+          className="h-7 w-7 bg-background/90 backdrop-blur"
+        >
+          <Maximize2 className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+
+      {/* Breadcrumb / drill path */}
+      {drillStack.length > 0 && (
+        <div className="absolute bottom-3 left-3 right-3 z-20">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground bg-background/90 backdrop-blur rounded-md px-2.5 py-1.5 overflow-x-auto">
+            <span className="opacity-60">Raíz</span>
+            {drillStack.map((d, i) => (
+              <span key={i} className="flex items-center gap-1.5">
+                <span className="opacity-40">›</span>
+                <span
+                  className="font-medium truncate max-w-[140px]"
+                  style={{ color: NODE_COLORS[d.data.center.label] || "#666" }}
+                >
+                  {d.data.center.name}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hint */}
+      {drillStack.length === 0 && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 text-[10px] text-muted-foreground bg-background/80 backdrop-blur rounded px-2 py-1 flex items-center gap-1.5">
+          <MousePointerClick className="w-3 h-3" />
+          Doble clic para explorar · Clic derecho para volver
+        </div>
+      )}
+
+      {/* SVG Canvas */}
+      <svg
+        ref={svgRef}
+        className="w-full h-full"
+        style={{ cursor: isPanning ? "grabbing" : "grab" }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
         <defs>
-          <marker id="arrow" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-            <polygon points="0 0, 6 2, 0 4" fill="hsl(var(--muted-foreground))" opacity="0.4" />
+          <marker
+            id="arrow"
+            markerWidth="8"
+            markerHeight="6"
+            refX="8"
+            refY="3"
+            orient="auto"
+          >
+            <polygon
+              points="0 0, 8 3, 0 6"
+              fill="hsl(var(--muted-foreground))"
+              opacity="0.3"
+            />
           </marker>
+          <marker
+            id="arrow-active"
+            markerWidth="8"
+            markerHeight="6"
+            refX="8"
+            refY="3"
+            orient="auto"
+          >
+            <polygon
+              points="0 0, 8 3, 0 6"
+              fill="hsl(var(--foreground))"
+              opacity="0.6"
+            />
+          </marker>
+          {/* Glow filter for hovered nodes */}
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
 
-        {/* Edges */}
-        {data.edges.map((edge, i) => {
-          const from = posMap.get(edge.source) || posMap.get(data.center.nif);
-          const to = posMap.get(edge.target) || posMap.get(data.center.nif);
-          if (!from || !to) return null;
-          return (
-            <g key={`e-${i}`}>
-              <line
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                stroke="hsl(var(--border))"
-                strokeWidth="1.5"
-                markerEnd="url(#arrow)"
-              />
-              <text
-                x={(from.x + to.x) / 2}
-                y={(from.y + to.y) / 2 - 6}
-                textAnchor="middle"
-                className="text-[9px] fill-muted-foreground"
-              >
-                {edge.type}
-              </text>
-            </g>
-          );
-        })}
+        <g
+          transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}
+        >
+          {/* Edges */}
+          {edges.map((edge, i) => {
+            const from = posMap.get(edge.source);
+            const to = posMap.get(edge.target);
+            if (!from || !to) return null;
+            const isHighlighted = hoveredEdges.has(i);
+            // Offset for edge label
+            const mx = (from.x + to.x) / 2;
+            const my = (from.y + to.y) / 2;
+            // Perpendicular offset for label
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            const ox = (-dy / len) * 8;
+            const oy = (dx / len) * 8;
 
-        {/* Nodes */}
-        {positions.map((node) => {
-          const color = NODE_COLORS[node.label] || "#666";
-          const isCenter = node.id === data.center.nif;
-          const r = isCenter ? 28 : 20;
-          return (
-            <g key={node.id}>
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r={r}
-                fill={color}
-                opacity={isCenter ? 1 : 0.8}
-                stroke={isCenter ? "white" : "none"}
-                strokeWidth={isCenter ? 2 : 0}
-              />
-              <text
-                x={node.x}
-                y={node.y + r + 14}
-                textAnchor="middle"
-                className="text-[10px] fill-foreground font-medium"
+            return (
+              <g key={`e-${i}`}>
+                <line
+                  x1={from.x}
+                  y1={from.y}
+                  x2={to.x}
+                  y2={to.y}
+                  stroke={isHighlighted ? "hsl(var(--foreground))" : "hsl(var(--border))"}
+                  strokeWidth={isHighlighted ? 2 : 1.2}
+                  strokeOpacity={hoveredId && !isHighlighted ? 0.15 : isHighlighted ? 0.7 : 0.4}
+                  markerEnd={isHighlighted ? "url(#arrow-active)" : "url(#arrow)"}
+                  style={{ transition: "stroke-opacity 0.15s, stroke-width 0.15s" }}
+                />
+                <text
+                  x={mx + ox}
+                  y={my + oy}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  className="select-none pointer-events-none"
+                  fill={isHighlighted ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))"}
+                  fontSize={9}
+                  fontWeight={isHighlighted ? 600 : 400}
+                  opacity={hoveredId && !isHighlighted ? 0.1 : isHighlighted ? 0.9 : 0.5}
+                  style={{ transition: "opacity 0.15s" }}
+                >
+                  {edge.type.replace(/_/g, " ")}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Nodes */}
+          {positioned.map((node) => {
+            const color = NODE_COLORS[node.label] || "#666";
+            const dimmed = hoveredId && hoveredId !== node.id && !hoveredEdges.size
+              ? true
+              : hoveredId && hoveredId !== node.id &&
+                !edges.some(
+                  (e) =>
+                    (e.source === hoveredId && e.target === node.id) ||
+                    (e.target === hoveredId && e.source === node.id)
+                );
+            const isHovered = hoveredId === node.id;
+
+            return (
+              <g
+                key={node.id}
+                data-node-id={node.id}
+                style={{ cursor: node.isCenter ? "default" : "pointer" }}
+                onMouseEnter={(e) => handleNodeEnter(node, e)}
+                onMouseLeave={handleNodeLeave}
+                onDoubleClick={() => handleNodeDblClick(node)}
               >
-                {node.name.length > 24 ? node.name.slice(0, 22) + "..." : node.name}
-              </text>
-              <text
-                x={node.x}
-                y={node.y + 4}
-                textAnchor="middle"
-                className="text-[9px] fill-white font-bold"
-              >
-                {node.label.slice(0, 3).toUpperCase()}
-              </text>
-            </g>
-          );
-        })}
+                {/* Hover ring */}
+                {isHovered && !node.isCenter && (
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r={node.r + 6}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    opacity={0.6}
+                  >
+                    <animate
+                      attributeName="stroke-dashoffset"
+                      from="0"
+                      to="14"
+                      dur="1s"
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                )}
+                {/* Shadow */}
+                <circle
+                  cx={node.x + 1}
+                  cy={node.y + 2}
+                  r={node.r}
+                  fill="black"
+                  opacity={0.12}
+                />
+                {/* Main circle */}
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={node.r}
+                  fill={color}
+                  opacity={dimmed ? 0.25 : node.isCenter ? 1 : 0.85}
+                  stroke={node.isCenter ? "white" : isHovered ? "white" : "none"}
+                  strokeWidth={node.isCenter ? 3 : isHovered ? 2 : 0}
+                  filter={isHovered ? "url(#glow)" : undefined}
+                  style={{ transition: "opacity 0.15s" }}
+                />
+                {/* Label inside circle */}
+                <text
+                  x={node.x}
+                  y={node.y + 1}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fill="white"
+                  fontSize={node.isCenter ? 10 : 8}
+                  fontWeight={700}
+                  className="select-none pointer-events-none"
+                  opacity={dimmed ? 0.3 : 1}
+                >
+                  {node.label.slice(0, 3).toUpperCase()}
+                </text>
+                {/* Name below */}
+                <text
+                  x={node.x}
+                  y={node.y + node.r + 13}
+                  textAnchor="middle"
+                  fill="hsl(var(--foreground))"
+                  fontSize={10}
+                  fontWeight={isHovered ? 600 : 500}
+                  className="select-none pointer-events-none"
+                  opacity={dimmed ? 0.2 : 1}
+                  style={{ transition: "opacity 0.15s" }}
+                >
+                  {node.name.length > 26 ? node.name.slice(0, 24) + "…" : node.name}
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="absolute z-30 pointer-events-none"
+          style={{
+            left: Math.min(tooltip.screenX + 14, (containerRef.current?.offsetWidth || 800) - 260),
+            top: Math.max(tooltip.screenY - 10, 8),
+          }}
+        >
+          <div className="bg-popover border border-border rounded-lg shadow-xl p-3 min-w-[200px] max-w-[260px]">
+            <div className="flex items-center gap-2 mb-1.5">
+              <div
+                className="w-3 h-3 rounded-full shrink-0"
+                style={{ background: NODE_COLORS[tooltip.node.label] || "#666" }}
+              />
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                {NODE_LABELS_ES[tooltip.node.label] || tooltip.node.label}
+              </span>
+            </div>
+            <p className="text-sm font-semibold leading-snug">{tooltip.node.name}</p>
+            {/* Properties */}
+            {Object.entries(tooltip.node.properties).length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                {Object.entries(tooltip.node.properties)
+                  .filter(([k]) => !["labels", "_source", "id"].includes(k))
+                  .slice(0, 5)
+                  .map(([key, val]) => {
+                    const formatted = key === "amount" ? formatAmount(val) : null;
+                    return (
+                      <div key={key} className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground capitalize">
+                          {key.replace(/_/g, " ")}
+                        </span>
+                        <span className="font-medium ml-2 truncate max-w-[120px]">
+                          {formatted || String(val)}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+            {!tooltip.node.isCenter && (
+              <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
+                <MousePointerClick className="w-2.5 h-2.5" />
+                Doble clic para explorar
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+// ── Main Page Component ──
 export default function CompanyGraph() {
-  const params = useParams<{ nif?: string }>();
+  const params = useParams<{ nif?: string; drillId?: string }>();
+  // drillId is base64-encoded to avoid URL issues with colons
+  const drillParam = params.drillId ? (() => { try { return atob(params.drillId!); } catch { return null; } })() : null;
   const [nifInput, setNifInput] = useState(params.nif || "B12345678");
   const [activeNif, setActiveNif] = useState(params.nif || "B12345678");
+  const [drillStack, setDrillStack] = useState<DrillState[]>([]);
+  const [initialDrillDone, setInitialDrillDone] = useState(false);
 
   const { data: graph, isLoading: graphLoading } = useQuery<SubgraphResponse>({
     queryKey: ["/api/v1/public/graph/company", activeNif],
     queryFn: () =>
-      apiRequest("GET", `/api/v1/public/graph/company/${activeNif}`).then((r) => r.json()),
+      apiRequest("GET", `/api/v1/public/graph/company/${activeNif}`).then((r) =>
+        r.json()
+      ),
     enabled: !!activeNif,
   });
 
   const { data: patterns, isLoading: patternsLoading } = useQuery<PatternResponse>({
     queryKey: ["/api/v1/public/patterns/company", activeNif],
     queryFn: () =>
-      apiRequest("GET", `/api/v1/public/patterns/company/${activeNif}`).then((r) => r.json()),
+      apiRequest("GET", `/api/v1/public/patterns/company/${activeNif}`).then(
+        (r) => r.json()
+      ),
     enabled: !!activeNif,
   });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (nifInput.trim()) setActiveNif(nifInput.trim().toUpperCase());
+    if (nifInput.trim()) {
+      setActiveNif(nifInput.trim().toUpperCase());
+      setDrillStack([]);
+    }
   };
+
+  // Auto-drill from search page link (runs once on mount)
+  useEffect(() => {
+    if (drillParam && !initialDrillDone) {
+      setInitialDrillDone(true);
+      (async () => {
+        try {
+          const resp = await apiRequest("GET", `/api/v1/public/graph/node/${encodeURIComponent(drillParam)}`);
+          const data: NodeSubgraph = await resp.json();
+          if (data.nodes && data.nodes.length > 0) {
+            setDrillStack([{ nodeId: drillParam, data }]);
+          }
+        } catch { /* ignore */ }
+      })();
+    }
+  }, [drillParam, initialDrillDone]);
+
+  // Drill down into a node
+  const handleDrillDown = useCallback(async (nodeId: string) => {
+    try {
+      const resp = await apiRequest("GET", `/api/v1/public/graph/node/${encodeURIComponent(nodeId)}`);
+      const data: NodeSubgraph = await resp.json();
+      if (data.nodes && data.nodes.length > 0) {
+        setDrillStack((prev) => [...prev, { nodeId, data }]);
+      }
+    } catch {
+      // silently fail for nodes without subgraph data
+    }
+  }, []);
+
+  // Go back one level
+  const handleBack = useCallback(() => {
+    setDrillStack((prev) => prev.slice(0, -1));
+  }, []);
 
   return (
     <div className="p-6 md:p-8 max-w-[1400px] mx-auto space-y-6">
@@ -216,24 +774,36 @@ export default function CompanyGraph() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Graph visualization */}
         <div className="lg:col-span-2">
-          <Card>
+          <Card className="overflow-hidden">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 Subgrafo
                 {graph && (
                   <Badge variant="outline" className="text-[10px] font-mono">
-                    {graph.total_nodes} nodos · {graph.total_edges} aristas
+                    {drillStack.length > 0
+                      ? `${drillStack[drillStack.length - 1].data.nodes.length + 1} nodos · ${drillStack[drillStack.length - 1].data.edges.length} aristas`
+                      : `${graph.total_nodes} nodos · ${graph.total_edges} aristas`}
+                  </Badge>
+                )}
+                {drillStack.length > 0 && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    Nivel {drillStack.length}
                   </Badge>
                 )}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {graphLoading ? (
-                <Skeleton className="h-[400px] w-full" />
+                <Skeleton className="h-[520px] w-full" />
               ) : graph && graph.total_nodes > 0 ? (
-                <GraphVisualization data={graph} />
+                <GraphVisualization
+                  data={graph}
+                  onDrillDown={handleDrillDown}
+                  drillStack={drillStack}
+                  onBack={handleBack}
+                />
               ) : (
-                <div className="h-[400px] flex items-center justify-center text-muted-foreground text-sm">
+                <div className="h-[520px] flex items-center justify-center text-muted-foreground text-sm">
                   <div className="text-center">
                     <Building2 className="w-10 h-10 mx-auto mb-3 opacity-20" />
                     <p>No se encontraron datos para {activeNif}</p>
@@ -246,9 +816,15 @@ export default function CompanyGraph() {
           {/* Node legend */}
           <div className="flex flex-wrap gap-3 mt-3">
             {Object.entries(NODE_COLORS).map(([label, color]) => (
-              <div key={label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <div className="w-3 h-3 rounded-full" style={{ background: color }} />
-                {label}
+              <div
+                key={label}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              >
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ background: color }}
+                />
+                {NODE_LABELS_ES[label] || label}
               </div>
             ))}
           </div>
@@ -256,11 +832,51 @@ export default function CompanyGraph() {
 
         {/* Risk analysis panel */}
         <div className="space-y-4">
+          {/* Drill info card */}
+          {drillStack.length > 0 && (
+            <Card className="border-primary/30">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ background: NODE_COLORS[drillStack[drillStack.length - 1].data.center.label] || "#666" }}
+                  />
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    {NODE_LABELS_ES[drillStack[drillStack.length - 1].data.center.label] || drillStack[drillStack.length - 1].data.center.label}
+                  </span>
+                </div>
+                <p className="text-sm font-semibold">
+                  {drillStack[drillStack.length - 1].data.center.name}
+                </p>
+                {Object.entries(drillStack[drillStack.length - 1].data.center.properties)
+                  .filter(([k]) => !["id", "labels"].includes(k))
+                  .slice(0, 4)
+                  .map(([key, val]) => (
+                    <div key={key} className="flex items-center justify-between text-xs mt-1">
+                      <span className="text-muted-foreground capitalize">{key.replace(/_/g, " ")}</span>
+                      <span className="font-medium">{String(val)}</span>
+                    </div>
+                  ))}
+                <div className="mt-2 flex gap-2">
+                  <Badge variant="outline" className="text-[10px]">
+                    {drillStack[drillStack.length - 1].data.nodes.length} conexiones
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    Nivel {drillStack.length}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Company info */}
-          {graph?.center && (
+          {graph?.center && drillStack.length === 0 && (
             <Card>
               <CardContent className="p-4">
-                <p className="text-sm font-semibold" data-testid="text-company-name">
+                <p
+                  className="text-sm font-semibold"
+                  data-testid="text-company-name"
+                >
                   {graph.center.name}
                 </p>
                 <p className="text-xs text-muted-foreground font-mono mt-0.5">
@@ -268,10 +884,14 @@ export default function CompanyGraph() {
                 </p>
                 <div className="flex gap-2 mt-2">
                   {graph.center.status && (
-                    <Badge variant="outline" className="text-[10px]">{graph.center.status}</Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {graph.center.status}
+                    </Badge>
                   )}
                   {graph.center.province && (
-                    <Badge variant="outline" className="text-[10px]">{graph.center.province}</Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {graph.center.province}
+                    </Badge>
                   )}
                 </div>
               </CardContent>
@@ -293,15 +913,17 @@ export default function CompanyGraph() {
                 <>
                   <div>
                     <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-muted-foreground">Puntuación de riesgo</span>
-                      <span className="font-bold tabular-nums" data-testid="text-risk-score">
+                      <span className="text-muted-foreground">
+                        Puntuación de riesgo
+                      </span>
+                      <span
+                        className="font-bold tabular-nums"
+                        data-testid="text-risk-score"
+                      >
                         {patterns.risk_score}/100
                       </span>
                     </div>
-                    <Progress
-                      value={patterns.risk_score}
-                      className="h-2"
-                    />
+                    <Progress value={patterns.risk_score} className="h-2" />
                   </div>
 
                   {/* Risk signals */}
@@ -322,15 +944,19 @@ export default function CompanyGraph() {
                             {signal.signal_type === "tax_debt"
                               ? "Deuda tributaria"
                               : signal.signal_type === "sanction"
-                              ? "Sanción"
-                              : signal.signal_type === "offshore"
-                              ? "Conexión offshore"
-                              : signal.signal_type === "no_bid_contract"
-                              ? "Contrato sin concurso"
-                              : signal.signal_type}
+                                ? "Sanción"
+                                : signal.signal_type === "offshore"
+                                  ? "Conexión offshore"
+                                  : signal.signal_type === "no_bid_contract"
+                                    ? "Contrato sin concurso"
+                                    : signal.signal_type}
                           </div>
-                          <p className="leading-relaxed">{signal.description}</p>
-                          <p className="text-[10px] opacity-70 mt-1">Fuente: {signal.source}</p>
+                          <p className="leading-relaxed">
+                            {signal.description}
+                          </p>
+                          <p className="text-[10px] opacity-70 mt-1">
+                            Fuente: {signal.source}
+                          </p>
                         </div>
                       ))
                     )}
@@ -343,12 +969,21 @@ export default function CompanyGraph() {
                         Conexiones
                       </p>
                       <div className="space-y-1">
-                        {Object.entries(patterns.connections_summary).map(([type, count]) => (
-                          <div key={type} className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">{type}</span>
-                            <span className="font-mono font-medium">{count}</span>
-                          </div>
-                        ))}
+                        {Object.entries(patterns.connections_summary).map(
+                          ([type, count]) => (
+                            <div
+                              key={type}
+                              className="flex items-center justify-between text-xs"
+                            >
+                              <span className="text-muted-foreground">
+                                {type}
+                              </span>
+                              <span className="font-mono font-medium">
+                                {count}
+                              </span>
+                            </div>
+                          )
+                        )}
                       </div>
                     </div>
                   )}

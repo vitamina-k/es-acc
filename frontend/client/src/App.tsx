@@ -104,7 +104,7 @@ function AppLayout() {
             {dark ? "Modo claro" : "Modo oscuro"}
           </button>
           <a
-            href="https://github.com/thebraidbrothers/es-acc"
+            href="https://github.com/vitamina-k/es-acc"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 w-full transition-colors"
@@ -161,8 +161,9 @@ function AppLayout() {
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/search" component={SearchPage} />
-          <Route path="/graph" component={CompanyGraph} />
+          <Route path="/graph/drill/:drillId" component={CompanyGraph} />
           <Route path="/graph/:nif" component={CompanyGraph} />
+          <Route path="/graph" component={CompanyGraph} />
           <Route path="/sources" component={SourcesPage} />
           <Route component={NotFound} />
         </Switch>

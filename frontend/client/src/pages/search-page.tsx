@@ -97,7 +97,9 @@ export default function SearchPage() {
           const config = LABEL_CONFIG[result.label] || LABEL_CONFIG.Company;
           const Icon = config.icon;
           const isCompany = result.label === "Company";
-          const href = isCompany ? `/graph/${result.id}` : `/graph`;
+          // For non-company entities, link to graph with drill ID (base64-encoded to avoid URL issues)
+          const drillId = btoa(result.id);
+          const href = isCompany ? `/graph/${result.id}` : `/graph/drill/${drillId}`;
 
           return (
             <Link key={result.id} href={href}>
