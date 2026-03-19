@@ -16,6 +16,7 @@ import {
   Github,
   Eye,
   Zap,
+  Heart,
 } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import SearchPage from "@/pages/search-page";
@@ -23,6 +24,9 @@ import CompanyGraph from "@/pages/company-graph";
 import SourcesPage from "@/pages/sources-page";
 import EdicionPage from "@/pages/edicion";
 import DeudoresPage from "@/pages/deudores";
+import AvisoLegal from "@/pages/aviso-legal";
+import Privacidad from "@/pages/privacidad";
+import DonarPage from "@/pages/donar";
 import NotFound from "@/pages/not-found";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 
@@ -59,6 +63,7 @@ function AppLayout() {
 
   const isEdicion = location === "/edicion" || location.startsWith("/edicion/");
   const isDeudores = location === "/deudores" || location.startsWith("/deudores/");
+  const isLegal = location === "/aviso-legal" || location === "/privacidad";
 
   // Standalone pages — render without main sidebar
   if (isEdicion) return <EdicionPage />;
@@ -107,6 +112,14 @@ function AppLayout() {
           })}
         </nav>
         <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
+          {/* Donar — destacado */}
+          <Link
+            href="/donar"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium text-red-500 hover:bg-red-500/10 w-full transition-colors"
+          >
+            <Heart className="w-4 h-4" />
+            Apoyar el proyecto
+          </Link>
           <button
             data-testid="btn-toggle-theme"
             onClick={() => setDark(!dark)}
@@ -124,6 +137,11 @@ function AppLayout() {
             <Github className="w-4 h-4" />
             GitHub
           </a>
+          {/* Footer legal */}
+          <div className="flex gap-3 px-3 pt-1">
+            <Link href="/aviso-legal" className="text-[10px] text-muted-foreground hover:underline">Aviso legal</Link>
+            <Link href="/privacidad" className="text-[10px] text-muted-foreground hover:underline">Privacidad</Link>
+          </div>
           <PerplexityAttribution />
         </div>
       </aside>
@@ -177,6 +195,9 @@ function AppLayout() {
           <Route path="/graph/:nif" component={CompanyGraph} />
           <Route path="/graph" component={CompanyGraph} />
           <Route path="/sources" component={SourcesPage} />
+          <Route path="/donar" component={DonarPage} />
+          <Route path="/aviso-legal" component={AvisoLegal} />
+          <Route path="/privacidad" component={Privacidad} />
           <Route component={NotFound} />
         </Switch>
       </main>
