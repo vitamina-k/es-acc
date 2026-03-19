@@ -59,6 +59,21 @@ const NODE_ICONS: Record<string, typeof Building2> = {
   TaxDebt: Shield,
 };
 
+const NODE_LABELS_ES: Record<string, string> = {
+  Company: "Empresa",
+  Person: "Persona",
+  Contract: "Contrato",
+  Grant: "Subvención",
+  Sanction: "Sanción",
+  PublicOffice: "Cargo Público",
+  PoliticalGroup: "Grupo Político",
+  PublicOrgan: "Órgano Público",
+  TaxDebt: "Deuda Fiscal",
+  Investigation: "Investigación",
+  GazetteEntry: "Entrada BOE",
+  Partner: "Socio",
+};
+
 export default function Dashboard() {
   const { data, isLoading } = useQuery<MetaResponse>({
     queryKey: ["/api/v1/public/meta"],
@@ -69,7 +84,7 @@ export default function Dashboard() {
     ? Object.entries(data.node_counts)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8)
-        .map(([label, count]) => ({ name: label, count }))
+        .map(([label, count]) => ({ name: NODE_LABELS_ES[label] || label, count }))
     : [];
 
   const categoryData = data

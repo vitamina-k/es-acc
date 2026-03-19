@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useParams } from "wouter";
 import type { SubgraphResponse, PatternResponse } from "@shared/schema";
+import { getNodeSubgraph, type NodeSubgraph } from "@/lib/mock-graphs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -55,6 +56,73 @@ const NODE_LABELS_ES: Record<string, string> = {
   Investigation: "Investigación",
 };
 
+const EDGE_LABELS_ES: Record<string, string> = {
+  ADMINISTRA: "Administra",
+  ADJUDICADO_A: "Adjudicado a",
+  TIENE_DEUDA: "Tiene deuda",
+  CONTRATA: "Contrata",
+  OCUPA_CARGO: "Ocupa cargo",
+  PERTENECE_A: "Pertenece a",
+  MIEMBRO_DE: "Miembro de",
+  DIRIGE: "Dirige",
+  DIRIGIÓ: "Dirigió",
+  NOMBRA: "Nombra",
+  SOCIO_UTE: "Socio UTE",
+  SUBVENCIONADO: "Subvencionado",
+  SANCIONADA: "Sancionada",
+  INVESTIGADO_EN: "Investigado en",
+  REUNIÓN_OFICIAL: "Reunión oficial",
+  PRESIDE: "Preside",
+  // Fallbacks for any legacy English types that might still appear
+  ADMINISTERS: "Administra",
+  AWARDED_TO: "Adjudicado a",
+  HAS_DEBT: "Tiene deuda",
+  CONTRACTS: "Contrata",
+  HOLDS_OFFICE: "Ocupa cargo",
+  BELONGS_TO: "Pertenece a",
+  MEMBER_OF: "Miembro de",
+  HEADS: "Dirige",
+  PREVIOUSLY_HEADED: "Dirigió",
+  APPOINTS: "Nombra",
+  UTE_PARTNER: "Socio UTE",
+  GRANTED_TO: "Subvencionado",
+  SANCTIONED: "Sancionada",
+  INVESTIGATED_IN: "Investigado en",
+  OFFICIAL_MEETING: "Reunión oficial",
+};
+
+const PROP_KEYS_ES: Record<string, string> = {
+  role: "cargo",
+  cargo: "cargo",
+  source: "fuente",
+  fuente: "fuente",
+  amount: "importe",
+  importe: "importe",
+  note: "nota",
+  nota: "nota",
+  party: "partido",
+  partido: "partido",
+  institution: "institución",
+  institución: "institución",
+  status: "estado",
+  estado: "estado",
+  year: "año",
+  año: "año",
+  since: "desde",
+  desde: "desde",
+  until: "hasta",
+  hasta: "hasta",
+  date: "fecha",
+  fecha: "fecha",
+  from: "desde",
+  to: "hasta",
+  province: "provincia",
+  provincia: "provincia",
+  project: "proyecto",
+  proyecto: "proyecto",
+  nif: "NIF",
+};
+
 const SEVERITY_STYLES: Record<string, string> = {
   high: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
   medium: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
@@ -78,12 +146,6 @@ interface GraphEdge {
   target: string;
   type: string;
   properties: Record<string, unknown>;
-}
-
-interface NodeSubgraph {
-  center: { id: string; label: string; name: string; properties: Record<string, unknown> };
-  nodes: Array<{ id: string; label: string; name: string; properties: Record<string, unknown> }>;
-  edges: Array<{ source: string; target: string; type: string; properties: Record<string, unknown> }>;
 }
 
 interface DrillState {
@@ -514,7 +576,7 @@ function GraphVisualization({
                   opacity={hoveredId && !isHighlighted ? 0.1 : isHighlighted ? 0.9 : 0.5}
                   style={{ transition: "opacity 0.15s" }}
                 >
-                  {edge.type.replace(/_/g, " ")}
+                  {EDGE_LABELS_ES[edge.type] || edge.type.replace(/_/g, " ")}
                 </text>
               </g>
             );
@@ -641,14 +703,14 @@ function GraphVisualization({
             {Object.entries(tooltip.node.properties).length > 0 && (
               <div className="mt-2 space-y-0.5">
                 {Object.entries(tooltip.node.properties)
-                  .filter(([k]) => !["labels", "_source", "id"].includes(k))
+                  .filter(([k]) => !["labels", "_source", "id", "name", "title", "debtor_name"].includes(k))
                   .slice(0, 5)
                   .map(([key, val]) => {
-                    const formatted = key === "amount" ? formatAmount(val) : null;
+                    const formatted = (key === "amount" || key === "importe") ? formatAmount(val) : null;
                     return (
                       <div key={key} className="flex items-center justify-between text-[11px]">
                         <span className="text-muted-foreground capitalize">
-                          {key.replace(/_/g, " ")}
+                          {PROP_KEYS_ES[key] || key.replace(/_/g, " ")}
                         </span>
                         <span className="font-medium ml-2 truncate max-w-[120px]">
                           {formatted || String(val)}
@@ -711,20 +773,22 @@ export default function CompanyGraph() {
   useEffect(() => {
     if (drillParam && !initialDrillDone) {
       setInitialDrillDone(true);
-      (async () => {
-        try {
-          const resp = await apiRequest("GET", `/api/v1/public/graph/node/${encodeURIComponent(drillParam)}`);
-          const data: NodeSubgraph = await resp.json();
-          if (data.nodes && data.nodes.length > 0) {
-            setDrillStack([{ nodeId: drillParam, data }]);
-          }
-        } catch { /* ignore */ }
-      })();
+      const localData = getNodeSubgraph(drillParam);
+      if (localData && localData.nodes.length > 0) {
+        setDrillStack([{ nodeId: drillParam, data: localData }]);
+      }
     }
   }, [drillParam, initialDrillDone]);
 
-  // Drill down into a node
+  // Drill down into a node (uses client-side data, works on static deploy)
   const handleDrillDown = useCallback(async (nodeId: string) => {
+    // Try client-side mock data first (works on static deploy)
+    const localData = getNodeSubgraph(nodeId);
+    if (localData && localData.nodes.length > 0) {
+      setDrillStack((prev) => [...prev, { nodeId, data: localData }]);
+      return;
+    }
+    // Fallback to API (works when Express server is running)
     try {
       const resp = await apiRequest("GET", `/api/v1/public/graph/node/${encodeURIComponent(nodeId)}`);
       const data: NodeSubgraph = await resp.json();
@@ -732,7 +796,7 @@ export default function CompanyGraph() {
         setDrillStack((prev) => [...prev, { nodeId, data }]);
       }
     } catch {
-      // silently fail for nodes without subgraph data
+      // No subgraph data available for this node
     }
   }, []);
 
@@ -853,8 +917,8 @@ export default function CompanyGraph() {
                   .slice(0, 4)
                   .map(([key, val]) => (
                     <div key={key} className="flex items-center justify-between text-xs mt-1">
-                      <span className="text-muted-foreground capitalize">{key.replace(/_/g, " ")}</span>
-                      <span className="font-medium">{String(val)}</span>
+                      <span className="text-muted-foreground capitalize">{PROP_KEYS_ES[key] || key.replace(/_/g, " ")}</span>
+                      <span className="font-medium">{(key === "amount" || key === "importe") ? (formatAmount(val) || String(val)) : String(val)}</span>
                     </div>
                   ))}
                 <div className="mt-2 flex gap-2">
@@ -941,15 +1005,7 @@ export default function CompanyGraph() {
                         >
                           <div className="flex items-center gap-1.5 font-semibold mb-0.5">
                             <AlertTriangle className="w-3 h-3" />
-                            {signal.signal_type === "tax_debt"
-                              ? "Deuda tributaria"
-                              : signal.signal_type === "sanction"
-                                ? "Sanción"
-                                : signal.signal_type === "offshore"
-                                  ? "Conexión offshore"
-                                  : signal.signal_type === "no_bid_contract"
-                                    ? "Contrato sin concurso"
-                                    : signal.signal_type}
+                            {{ tax_debt: "Deuda tributaria", sanction: "Sanción", offshore: "Conexión offshore", no_bid_contract: "Contrato sin concurso", political_conflict: "Conflicto de interés político", public_contracts: "Contratos públicos bajo sospecha" }[signal.signal_type] || signal.signal_type}
                           </div>
                           <p className="leading-relaxed">
                             {signal.description}
@@ -976,7 +1032,7 @@ export default function CompanyGraph() {
                               className="flex items-center justify-between text-xs"
                             >
                               <span className="text-muted-foreground">
-                                {type}
+                                {EDGE_LABELS_ES[type] || type.replace(/_/g, " ")}
                               </span>
                               <span className="font-mono font-medium">
                                 {count}
