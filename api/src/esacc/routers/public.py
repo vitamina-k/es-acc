@@ -201,3 +201,61 @@ async def public_graph_for_company(
         )
 
     return GraphResponse(nodes=nodes, edges=edges, center_id=center_id)
+
+
+# --- Politicians endpoint ---
+@router.get("/politicians")
+async def public_politicians(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> dict:
+    skip = (page - 1) * size
+    records = await execute_query(
+        session,
+        "public_politicians_list",
+        {"skip": skip, "limit": size},
+    )
+    total_record = await execute_query_single(session, "public_politicians_count", {})
+    total = total_record["total"] if total_record else 0
+    politicians = []
+    for r in records:
+        politicians.append({
+            "id": r["id"],
+            "name": str(r["name"]),
+            "partido": str(r["partido"]),
+            "cargo": str(r["cargo"]),
+            "circunscripcion": str(r["circunscripcion"]),
+            "activo": bool(r["activo"]),
+            "legislatura": int(r["legislatura"]) if r["legislatura"] else 0,
+            "fuente": str(r["fuente"]),
+            "grupo_parlamentario": str(r["grupo_parlamentario"]),
+        })
+    return {"politicians": politicians, "total": total, "page": page, "size": size}
+
+
+# --- Citizen tips endpoint ---
+@router.post("/tips", status_code=201)
+async def submit_tip(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    body: dict,
+) -> dict:
+    import uuid
+    from datetime import UTC, datetime
+    tip_id = str(uuid.uuid4())[:8]
+    description = str(body.get("description", "")).strip()[:2000]
+    if not description:
+        raise HTTPException(status_code=422, detail="description is required")
+    await execute_query(
+        session,
+        "public_tip_create",
+        {
+            "tip_id": tip_id,
+            "description": description,
+            "source_hint": str(body.get("source_hint", ""))[:500],
+            "contact": str(body.get("contact", ""))[:200],
+            "entities_mentioned": body.get("entities_mentioned", []),
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    return {"tip_id": tip_id, "status": "received"}
