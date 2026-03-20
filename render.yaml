@@ -1,10 +1,28 @@
 services:
+  # Frontend Node.js (hacker UI — VIGILIA)
   - type: web
-    name: vigilia
+    name: vigilia-frontend
     runtime: node
     buildCommand: cd frontend && npm install && npm run build
     startCommand: cd frontend && npm start
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NEO4J_API_URL
+        value: https://vigilia-api.onrender.com
+    autoDeploy: true
+
+  # FastAPI backend (Neo4j proxy)
+  - type: web
+    name: vigilia-api
+    runtime: docker
+    dockerfilePath: api/Dockerfile
+    dockerContext: api
+    envVars:
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USER
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
     autoDeploy: true
