@@ -1,0 +1,249 @@
+.section {
+  padding: 5rem 0;
+  background: linear-gradient(180deg, #0a0a0a 0%, #0a0d12 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.header {
+  width: min(78rem, calc(100% - clamp(2rem, 7vw, 8rem)));
+  margin: 0 auto 2.5rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.sectionLabel {
+  display: block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  color: var(--accent, #00e5c3);
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.heading {
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  font-weight: 600;
+  color: #f0f0f0;
+  margin: 0 0 0.4rem;
+}
+
+.subheading {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0;
+}
+
+.tipBtn {
+  padding: 0.6rem 1.25rem;
+  border: 1px solid rgba(0, 229, 195, 0.3);
+  background: rgba(0, 229, 195, 0.08);
+  color: var(--accent, #00e5c3);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+
+.tipBtn:hover {
+  background: rgba(0, 229, 195, 0.15);
+  border-color: rgba(0, 229, 195, 0.5);
+}
+
+.scrollWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.track {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding: 0.5rem clamp(2rem, 7vw, 8rem) 1rem;
+  width: 100%;
+}
+
+.track::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollBtn {
+  position: absolute;
+  z-index: 10;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 10, 10, 0.85);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.scrollBtn:hover {
+  background: rgba(30, 30, 30, 0.95);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.scrollLeft {
+  left: 0.5rem;
+}
+
+.scrollRight {
+  right: 0.5rem;
+}
+
+/* Card */
+
+.card {
+  flex: 0 0 200px;
+  scroll-snap-align: start;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: transform 0.2s, border-color 0.2s, background 0.2s;
+  cursor: default;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  border-color: var(--party-color, rgba(78, 168, 222, 0.4));
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 0 auto;
+}
+
+.initials {
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.activeDot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4caf50;
+  border: 2px solid #0a0a0a;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1;
+}
+
+.name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #e8e8e8;
+  margin: 0;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.partido {
+  display: inline-block;
+  align-self: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.cargo {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.circunscripcion {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.35);
+  margin: 0;
+  text-align: center;
+}
+
+.grupo {
+  font-size: 0.62rem;
+  color: rgba(255, 255, 255, 0.3);
+  margin: 0;
+  text-align: center;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardFooter {
+  margin-top: auto;
+  text-align: center;
+}
+
+.fichaBtn {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid;
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.fichaBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Skeleton */
+.cardSkeleton {
+  flex: 0 0 200px;
+  height: 260px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
