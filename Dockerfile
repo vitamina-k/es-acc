@@ -21,6 +21,9 @@ RUN cd api && uv sync --no-dev --no-install-project
 COPY api/src/ ./api/src/
 RUN cd api && uv sync --no-dev
 
+# ── Source registry CSV (required by source_registry.py) ─────────────────────
+COPY docs/source_registry_es_v1.csv ./docs/source_registry_es_v1.csv
+
 # ── Node.js frontend: build ──────────────────────────────────────────────────
 COPY frontend/package*.json ./frontend/
 RUN cd frontend && npm ci
