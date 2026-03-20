@@ -2,6 +2,127 @@ import type { Express } from "express";
 import type { Server } from "http";
 import type { MetaResponse, SubgraphResponse, PatternResponse, SearchResultApi } from "@shared/schema";
 
+// URL de la API FastAPI+Neo4j real. Por defecto apunta a localhost para desarrollo local.
+// En producción (Render), si no hay API real, cae automáticamente al mock.
+const REAL_API = process.env.NEO4J_API_URL || "http://localhost:8000";
+
+// Intenta llamar a la API real. Si falla, devuelve null.
+async function tryReal(path: string): Promise<unknown> {
+  try {
+    const res = await fetch(`${REAL_API}${path}`, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// Convierte type de la API real (lowercase) al label del frontend (PascalCase)
+function typeToLabel(type: string): string {
+  const map: Record<string, string> = {
+    person: "Person", company: "Company", contract: "Contract",
+    grant: "Grant", sanction: "Sanction", taxdebt: "TaxDebt",
+    publicorgan: "PublicOrgan", publicoffice: "PublicOffice",
+    politicalgroup: "PoliticalGroup", investigation: "Investigation",
+  };
+  return map[type?.toLowerCase()] ?? (type ? type.charAt(0).toUpperCase() + type.slice(1) : "Entity");
+}
+
+// Transforma stats de la API real al formato MetaResponse del frontend
+function transformStats(raw: Record<string, number>, sources: unknown[]): MetaResponse {
+  return {
+    total_nodes: raw.total_nodes ?? 0,
+    total_relationships: raw.total_relationships ?? 0,
+    node_counts: {
+      Person: raw.person_count ?? 0,
+      Company: raw.company_count ?? 0,
+      Contract: raw.contract_count ?? 0,
+      Grant: raw.fund_count ?? 0,
+      Sanction: raw.sanction_count ?? 0,
+      PublicOffice: 0,
+      PoliticalGroup: 0,
+      PublicOrgan: 0,
+      GazetteEntry: 0,
+      TaxDebt: 0,
+      Investigation: 0,
+      Partner: 0,
+    },
+    sources: Array.isArray(sources) ? sources : [],
+  };
+}
+
+// Transforma resultados de búsqueda de la API real al formato del frontend
+function transformSearch(raw: { results: Array<Record<string, unknown>> }): SearchResultApi[] {
+  if (!raw?.results) return [];
+  return raw.results.map((r) => {
+    const props = (r.properties as Record<string, unknown>) ?? {};
+    const snippetParts: string[] = [];
+    if (props.provincia || props.province) snippetParts.push(String(props.provincia ?? props.province));
+    if (props.fuente) snippetParts.push(String(props.fuente).toUpperCase());
+    if (props.cargo) snippetParts.push(String(props.cargo));
+    return {
+      id: String(r.id),
+      label: typeToLabel(String(r.type ?? "")),
+      name: String(r.name ?? r.id),
+      snippet: snippetParts.join(" — ") || String(r.document ?? ""),
+      score: typeof r.score === "number" ? r.score / 10 : 0.5, // normalizar a 0-1
+    };
+  });
+}
+
+// Transforma grafo de la API real al formato SubgraphResponse del frontend
+function transformGraph(
+  raw: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> },
+  centerNif: string,
+): SubgraphResponse {
+  const nodes = raw.nodes ?? [];
+  const edges = raw.edges ?? [];
+
+  // El centro es el nodo que coincide con el NIF/ID o el primero de la lista
+  const centerNode = nodes.find((n) => {
+    const props = (n.properties as Record<string, unknown>) ?? {};
+    return props.nif === centerNif || n.id === centerNif || n.document_id === centerNif;
+  }) ?? nodes[0];
+
+  const centerProps = (centerNode?.properties as Record<string, unknown>) ?? {};
+
+  const center: SubgraphResponse["center"] = {
+    nif: String(centerProps.nif ?? centerNif),
+    name: String(centerNode?.label ?? centerProps.razon_social ?? centerProps.nombre ?? centerNif),
+    status: String(centerProps.estado ?? ""),
+    province: String(centerProps.provincia ?? ""),
+    labels: [typeToLabel(String(centerNode?.type ?? "company"))],
+    properties: centerProps,
+  };
+
+  const otherNodes = nodes
+    .filter((n) => n.id !== centerNode?.id)
+    .map((n) => {
+      const p = (n.properties as Record<string, unknown>) ?? {};
+      return {
+        id: String(n.id),
+        labels: [typeToLabel(String(n.type ?? ""))],
+        name: String(n.label ?? p.razon_social ?? p.nombre ?? p.name ?? n.id),
+        ...p,
+      };
+    });
+
+  const mappedEdges = edges.map((e) => ({
+    source: String(e.source),
+    target: String(e.target),
+    type: String(e.type),
+    properties: (e.properties as Record<string, unknown>) ?? {},
+  }));
+
+  return {
+    center,
+    nodes: otherNodes,
+    edges: mappedEdges,
+    total_nodes: nodes.length,
+    total_edges: edges.length,
+  };
+}
+
 // ── Generic node subgraph response (for drill-down into any entity) ──
 interface NodeSubgraph {
   center: { id: string; label: string; name: string; properties: Record<string, unknown> };
@@ -386,20 +507,46 @@ function buildDynamicNodeSubgraph(nodeId: string): NodeSubgraph | null {
 export async function registerRoutes(server: Server, app: Express) {
   // Health
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", neo4j: "mock", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", neo4j: REAL_API, timestamp: new Date().toISOString() });
   });
 
-  // Meta / stats
-  app.get("/api/v1/public/meta", (_req, res) => {
-    res.json(MOCK_META);
+  // Meta / stats — usa API real, cae a mock si falla
+  app.get("/api/v1/public/meta", async (_req, res) => {
+    const [statsRaw, sourcesRaw] = await Promise.all([
+      tryReal("/api/v1/meta/stats"),
+      tryReal("/api/v1/meta/sources"),
+    ]);
+    if (statsRaw) {
+      const sources = (sourcesRaw as { sources?: unknown[] } | null)?.sources ?? [];
+      res.json(transformStats(statsRaw as Record<string, number>, sources));
+    } else {
+      res.json(MOCK_META);
+    }
   });
 
-  // Company subgraph
-  app.get("/api/v1/public/graph/company/:nif", (req, res) => {
+  // Company subgraph — usa API real
+  app.get("/api/v1/public/graph/company/:nif", async (req, res) => {
     const nif = req.params.nif;
-    const data = MOCK_COMPANIES[nif];
-    if (data) {
-      res.json(data);
+
+    // Primero: intenta con mock hardcodeado (demos conocidas)
+    const mockData = MOCK_COMPANIES[nif];
+
+    // Luego: intenta API real
+    // 1. Obtener entity por NIF
+    const entityRaw = await tryReal(`/api/v1/entity/${encodeURIComponent(nif)}`);
+    if (entityRaw && (entityRaw as Record<string, unknown>).id) {
+      const entityId = (entityRaw as Record<string, unknown>).id as string;
+      // 2. Obtener grafo por element_id
+      const graphRaw = await tryReal(`/api/v1/graph/${encodeURIComponent(entityId)}`);
+      if (graphRaw && (graphRaw as Record<string, unknown>).nodes) {
+        res.json(transformGraph(graphRaw as { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> }, nif));
+        return;
+      }
+    }
+
+    // Fallback: mock o vacío
+    if (mockData) {
+      res.json(mockData);
     } else {
       res.json({
         center: { nif, name: "Empresa no encontrada", status: null, province: null, labels: ["Company"], properties: {} },
@@ -408,16 +555,24 @@ export async function registerRoutes(server: Server, app: Express) {
     }
   });
 
-  // Node subgraph (drill-down from any node)
-  app.get("/api/v1/public/graph/node/:id", (req, res) => {
+  // Node subgraph (drill-down) — usa API real
+  app.get("/api/v1/public/graph/node/:id", async (req, res) => {
     const id = req.params.id;
-    // 1. Hardcoded subgraph
+
+    // Intenta API real primero
+    const graphRaw = await tryReal(`/api/v1/graph/${encodeURIComponent(id)}`);
+    if (graphRaw && (graphRaw as Record<string, unknown>).nodes) {
+      res.json(transformGraph(graphRaw as { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> }, id));
+      return;
+    }
+
+    // Fallback: mocks hardcodeados
     const data = MOCK_NODE_SUBGRAPHS[id];
     if (data) { res.json(data); return; }
-    // 2. Dynamic reverse-search across all subgraphs
     const dynamic = buildDynamicNodeSubgraph(id);
     if (dynamic) { res.json(dynamic); return; }
-    // 3. Minimal placeholder
+
+    // Último recurso: placeholder vacío
     const searchEntry = MOCK_SEARCH.find((s) => s.id === id);
     res.json({
       center: { id, label: searchEntry?.label || "Unknown", name: searchEntry?.name || id, properties: {} },
@@ -426,7 +581,7 @@ export async function registerRoutes(server: Server, app: Express) {
     });
   });
 
-  // Patterns
+  // Patterns — API real no disponible, devuelve vacío o mock
   app.get("/api/v1/public/patterns/company/:nif", (req, res) => {
     const nif = req.params.nif;
     const data = MOCK_PATTERNS[nif];
@@ -437,15 +592,25 @@ export async function registerRoutes(server: Server, app: Express) {
     }
   });
 
-  // Search
-  app.get("/api/v1/public/search", (req, res) => {
+  // Search — usa API real
+  app.get("/api/v1/public/search", async (req, res) => {
     const q = (req.query.q as string || "").toLowerCase().trim();
     if (!q || q.length < 2) {
       res.json([]);
       return;
     }
 
-    // Normalize search: remove accents for fuzzy matching
+    // Intenta API real
+    const realRaw = await tryReal(`/api/v1/search?q=${encodeURIComponent(q)}`);
+    if (realRaw && (realRaw as { results?: unknown[] }).results) {
+      const transformed = transformSearch(realRaw as { results: Array<Record<string, unknown>> });
+      if (transformed.length > 0) {
+        res.json(transformed);
+        return;
+      }
+    }
+
+    // Fallback: búsqueda en mock
     const normalize = (s: string) =>
       s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const qNorm = normalize(q);
@@ -456,28 +621,17 @@ export async function registerRoutes(server: Server, app: Express) {
         const snippetNorm = normalize(r.snippet || "");
         const idNorm = normalize(r.id);
         let matchScore = 0;
-
-        // Exact name match
         if (nameNorm === qNorm) matchScore = 1.0;
-        // Name starts with query
         else if (nameNorm.startsWith(qNorm)) matchScore = 0.9;
-        // Name contains query
         else if (nameNorm.includes(qNorm)) matchScore = 0.8;
-        // Any word in name starts with query
         else if (nameNorm.split(/\s+/).some((w) => w.startsWith(qNorm))) matchScore = 0.75;
-        // Snippet contains query
         else if (snippetNorm.includes(qNorm)) matchScore = 0.6;
-        // ID contains query
         else if (idNorm.includes(qNorm)) matchScore = 0.5;
-        // Multi-word: all query words appear somewhere
         else {
           const queryWords = qNorm.split(/\s+/);
           const allText = `${nameNorm} ${snippetNorm} ${idNorm}`;
-          if (queryWords.length > 1 && queryWords.every((w) => allText.includes(w))) {
-            matchScore = 0.65;
-          }
+          if (queryWords.length > 1 && queryWords.every((w) => allText.includes(w))) matchScore = 0.65;
         }
-
         return { ...r, matchScore };
       })
       .filter((r) => r.matchScore > 0)
