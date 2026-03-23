@@ -158,8 +158,6 @@ function GraphVisualization({
   const [tooltip, setTooltip] = useState<{ node: any; x: number; y: number } | null>(null);
   const fittedRef = useRef(false);
   const zoomRef = useRef(1);
-  const clickCountRef = useRef(0);
-  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentDrill = drillStack.length > 0 ? drillStack[drillStack.length - 1] : null;
 
@@ -284,16 +282,11 @@ function GraphVisualization({
 
   const linkColor = useCallback(() => "rgba(148,163,184,0.35)", []);
 
-  // Double-click detection
+  // Single-click to drill down into any non-center node
   const handleNodeClick = useCallback((node: any) => {
-    clickCountRef.current += 1;
-    if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
-    clickTimerRef.current = setTimeout(() => {
-      if (clickCountRef.current >= 2 && !node.isCenter) {
-        onDrillDown(node.id);
-      }
-      clickCountRef.current = 0;
-    }, 250);
+    if (!node.isCenter) {
+      onDrillDown(node.id);
+    }
   }, [onDrillDown]);
 
   const handleNodeHover = useCallback((node: any | null) => {
@@ -433,8 +426,8 @@ export default function CompanyGraph() {
   // drillId is base64-encoded to avoid URL issues with colons
   const drillParam = params.drillId ? (() => { try { return atob(params.drillId!); } catch { return null; } })() : null;
   const hasRealNif = !!params.nif;
-  const [nifInput, setNifInput] = useState(params.nif || "B12345678");
-  const [activeNif, setActiveNif] = useState(params.nif || "B12345678");
+  const [nifInput, setNifInput] = useState(params.nif || "");
+  const [activeNif, setActiveNif] = useState(params.nif || "");
   const [drillStack, setDrillStack] = useState<DrillState[]>([]);
   const [initialDrillDone, setInitialDrillDone] = useState(false);
 
@@ -567,7 +560,10 @@ export default function CompanyGraph() {
                 <div className="h-[520px] flex items-center justify-center text-muted-foreground text-sm">
                   <div className="text-center">
                     <Building2 className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                    <p>No se encontraron datos para {activeNif}</p>
+                    {activeNif
+                      ? <p>No se encontraron datos para {activeNif}</p>
+                      : <p>Introduce un NIF/CIF para explorar el grafo</p>
+                    }
                   </div>
                 </div>
               )}
