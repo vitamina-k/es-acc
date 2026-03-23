@@ -22,6 +22,9 @@ PIPELINES = {
     "congreso": "esacc_etl.pipelines.congreso",
     # ── Contratación pública ──────────────────────────────────────────────────
     "contratos_estado": "esacc_etl.pipelines.contratos_estado",
+    # ── Legislativo (resto de cámaras) ────────────────────────────────────────
+    "senado_es": "esacc_etl.pipelines.senado_es",           # ~265 senadores
+    "eurodiputados_es": "esacc_etl.pipelines.eurodiputados_es",  # ~61 eurodiputados
     # ── Sanciones (organismos reguladores) ────────────────────────────────────
     "cnmc": "esacc_etl.pipelines.cnmc",            # Competencia, energía, telecos
     "cnmv": "esacc_etl.pipelines.cnmv",            # Mercado de valores

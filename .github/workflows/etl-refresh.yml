@@ -55,7 +55,7 @@ jobs:
           mkdir -p "$DATA_DIR"
 
           # Lista de todos los pipelines activos
-          ALL_SOURCES="congreso contratos_estado cnmc cnmv aepd registro_concursal tgss_deudores"
+          ALL_SOURCES="congreso senado_es eurodiputados_es contratos_estado cnmc cnmv aepd registro_concursal tgss_deudores"
 
           if [ "$SOURCES" = "all" ]; then
             SOURCES_LIST="$ALL_SOURCES"
@@ -100,4 +100,4 @@ jobs:
           echo "**Pipelines ejecutados:** ${{ github.event.inputs.sources || 'all' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Fuentes activas:**" >> $GITHUB_STEP_SUMMARY
-          echo "- congreso · contratos_estado · cnmc · cnmv · aepd · registro_concursal · tgss_deudores" >> $GITHUB_STEP_SUMMARY
+          echo "- congreso · senado_es · eurodiputados_es · contratos_estado · cnmc · cnmv · aepd · registro_concursal · tgss_deudores" >> $GITHUB_STEP_SUMMARY
