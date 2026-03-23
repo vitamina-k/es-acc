@@ -94,14 +94,14 @@ export default function Dashboard() {
     queryFn: () => apiRequest("GET", "/api/v1/public/meta").then((r) => r.json()),
   });
 
-  const nodeChartData = data
+  const nodeChartData = data?.node_counts
     ? Object.entries(data.node_counts)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8)
         .map(([label, count]) => ({ name: NODE_LABELS_ES[label] || label, count }))
     : [];
 
-  const categoryData = data
+  const categoryData = data?.sources
     ? data.sources.reduce(
         (acc, s) => {
           const existing = acc.find((a) => a.name === s.category);
