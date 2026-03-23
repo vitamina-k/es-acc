@@ -324,7 +324,7 @@ export default function Dashboard() {
               </span>
               <span className="badge-operative">GRÁFICO</span>
             </div>
-            {isLoading ? (
+            {isLoading || nodeChartData.length === 0 ? (
               <Skeleton className="h-64 w-full bg-muted/30" />
             ) : (
               <ResponsiveContainer width="100%" height={280}>
@@ -376,7 +376,7 @@ export default function Dashboard() {
               </span>
               <span className="badge-operative">ANÁLISIS</span>
             </div>
-            {isLoading ? (
+            {isLoading || categoryData.length === 0 ? (
               <Skeleton className="h-64 w-full bg-muted/30" />
             ) : (
               <div className="flex items-center">

@@ -3,7 +3,35 @@ import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from "react";
+
+// ── Global Error Boundary — evita pantalla negra ante crashes de render ──
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error("[VIGILIA] Render crash:", error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-[hsl(220,60%,2%)] p-8">
+          <div className="border border-[hsl(0,100%,60%,0.4)] p-6 max-w-lg text-center space-y-3">
+            <p className="font-mono text-xs text-[hsl(0,100%,60%)] tracking-widest">ERROR DE SISTEMA</p>
+            <p className="font-mono text-sm text-foreground">
+              {(this.state.error as Error).message || "Error inesperado"}
+            </p>
+            <button
+              className="font-mono text-xs border border-[hsl(145,100%,50%,0.4)] px-4 py-2 text-[hsl(145,100%,50%)] hover:bg-[hsl(145,100%,50%,0.08)] transition-colors"
+              onClick={() => { this.setState({ error: null }); window.location.reload(); }}
+            >
+              REINTENTAR
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import {
   LayoutDashboard,
   Search,
@@ -284,12 +312,16 @@ function AppLayout() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <Router hook={useHashLocation}>
-        <AppLayout />
-      </Router>
-      <Toaster />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Router hook={useHashLocation}>
+          <ErrorBoundary>
+            <AppLayout />
+          </ErrorBoundary>
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 
