@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import type { MetaResponse } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -75,6 +76,84 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
         {sub && <p className="font-mono text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
       </div>
       <div className="flex-1 h-px bg-gradient-to-r from-[hsl(145,100%,50%,0.3)] to-transparent ml-2" />
+    </div>
+  );
+}
+
+// PIB España 2026 — estimación INE/FUNCAS: 1.720.000 M€ (+8.8% nominal vs 2024)
+const PIB_ANUAL_EUR = 1_720_000_000_000;
+const PIB_2024_M = 1_581_000;
+const PIB_2026_M = 1_720_000;
+const PIB_GROWTH = (((PIB_2026_M - PIB_2024_M) / PIB_2024_M) * 100).toFixed(1);
+
+function getAcumulado() {
+  const ahora = Date.now();
+  const y = new Date().getFullYear();
+  const inicio = new Date(y, 0, 1).getTime();
+  const fin = new Date(y + 1, 0, 1).getTime();
+  return Math.floor(PIB_ANUAL_EUR * ((ahora - inicio) / (fin - inicio)));
+}
+
+function PIBCounter() {
+  const [acumulado, setAcumulado] = useState(getAcumulado);
+  useEffect(() => {
+    const id = setInterval(() => setAcumulado(getAcumulado()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const pctAno = ((acumulado / PIB_ANUAL_EUR) * 100).toFixed(2);
+  const mEur = Math.floor(acumulado / 1_000_000).toLocaleString("es-ES");
+  const raw = acumulado.toLocaleString("es-ES");
+
+  return (
+    <div className="border border-[hsl(38,100%,60%,0.35)] bg-[hsl(220,60%,2%)] p-5 relative overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none" style={{
+        background: "radial-gradient(ellipse at top left, hsl(38,100%,60%,0.06) 0%, transparent 60%)"
+      }} />
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" style={{ color: "hsl(38,100%,60%)" }} />
+            <span className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
+              PIB España {new Date().getFullYear()} — Acumulado
+            </span>
+            <span className="badge-classified" style={{ borderColor: "hsl(38,100%,60%,0.4)", color: "hsl(38,100%,60%)" }}>
+              TIEMPO REAL
+            </span>
+          </div>
+          <span className="font-mono text-[10px] text-muted-foreground">Est. INE · FUNCAS</span>
+        </div>
+
+        <div className="flex items-end gap-4 flex-wrap">
+          <div>
+            <p className="font-mono text-3xl md:text-4xl font-bold tabular-nums leading-none"
+              style={{ color: "hsl(38,100%,60%)", textShadow: "0 0 30px hsl(38,100%,60%,0.5)" }}>
+              {mEur} <span className="text-xl">M€</span>
+            </p>
+            <p className="font-mono text-[11px] text-muted-foreground mt-1 tabular-nums">
+              € {raw}
+            </p>
+          </div>
+          <div className="flex flex-col gap-1 pb-1">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] text-muted-foreground">{pctAno}% del año</span>
+              <span className="font-mono text-[10px]" style={{ color: "hsl(145,100%,50%)" }}>
+                +{PIB_GROWTH}% vs 2024
+              </span>
+            </div>
+            <div className="w-48 h-1.5 bg-[hsl(38,100%,60%,0.1)] rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-none"
+                style={{
+                  width: `${pctAno}%`,
+                  background: "linear-gradient(90deg, hsl(38,100%,60%), hsl(145,100%,50%))"
+                }} />
+            </div>
+            <span className="font-mono text-[9px] text-muted-foreground">
+              {PIB_2026_M.toLocaleString("es-ES")} M€ anuales · ~{Math.round(PIB_ANUAL_EUR / 31_557_600).toLocaleString("es-ES")} €/s
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -165,6 +244,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── PIB Counter ── */}
+      <PIBCounter />
 
       {/* ── KPI Cards ── */}
       <div>
