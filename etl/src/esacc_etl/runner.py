@@ -18,25 +18,17 @@ console = Console()
 
 # Registry of available pipelines
 PIPELINES = {
+    # ── Legislativo ───────────────────────────────────────────────────────────
     "congreso": "esacc_etl.pipelines.congreso",
+    # ── Contratación pública ──────────────────────────────────────────────────
     "contratos_estado": "esacc_etl.pipelines.contratos_estado",
-    # Future pipelines (stubs):
-    # "borme": "esacc_etl.pipelines.borme",
-    # "senado_es": "esacc_etl.pipelines.senado_es",
-    # "eurodiputados_es": "esacc_etl.pipelines.eurodiputados_es",
-    # "boe": "esacc_etl.pipelines.boe",
-    # "boe_pep": "esacc_etl.pipelines.boe_pep",
-    # "aeat_deudores": "esacc_etl.pipelines.aeat_deudores",
-    # "rolece": "esacc_etl.pipelines.rolece",
-    # "bdns": "esacc_etl.pipelines.bdns",
-    # "miteco": "esacc_etl.pipelines.miteco",
-    # "tribunal_supremo": "esacc_etl.pipelines.tribunal_supremo",
-    # "icij": "esacc_etl.pipelines.icij",
-    # "opensanctions": "esacc_etl.pipelines.opensanctions",
-    # "eu_sanctions": "esacc_etl.pipelines.eu_sanctions",
-    # "ofac": "esacc_etl.pipelines.ofac",
-    # "un_sanctions": "esacc_etl.pipelines.un_sanctions",
-    # "world_bank": "esacc_etl.pipelines.world_bank",
+    # ── Sanciones (organismos reguladores) ────────────────────────────────────
+    "cnmc": "esacc_etl.pipelines.cnmc",            # Competencia, energía, telecos
+    "cnmv": "esacc_etl.pipelines.cnmv",            # Mercado de valores
+    "aepd": "esacc_etl.pipelines.aepd",            # Protección de datos (RGPD)
+    # ── Deuda e insolvencia ───────────────────────────────────────────────────
+    "registro_concursal": "esacc_etl.pipelines.registro_concursal",  # Quiebras
+    "tgss_deudores": "esacc_etl.pipelines.tgss_deudores",           # Deudas SS
 }
 
 
