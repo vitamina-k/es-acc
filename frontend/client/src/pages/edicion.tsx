@@ -2545,7 +2545,7 @@ function ComparadorModule({ entities }: { entities: EntidadEdicion[] }) {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between text-gray-400">
                     <span>Contratos públicos</span>
-                    <span className="text-gray-200 font-medium">{e.totalContratosPublicos.toLocaleString("es-ES")}</span>
+                    <span className="text-gray-200 font-medium">{(e.totalContratosPublicos ?? 0).toLocaleString("es-ES")}</span>
                   </div>
                   <div className="flex justify-between text-gray-400">
                     <span>Volumen documentado</span>

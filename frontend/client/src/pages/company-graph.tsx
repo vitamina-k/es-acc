@@ -465,6 +465,16 @@ export default function CompanyGraph() {
       const localData = getNodeSubgraph(drillParam);
       if (localData && localData.nodes.length > 0) {
         setDrillStack([{ nodeId: drillParam, data: localData }]);
+      } else {
+        // Fallback to API when node not in mock data
+        apiRequest("GET", `/api/v1/public/graph/node/${encodeURIComponent(drillParam)}`)
+          .then((r) => r.json())
+          .then((data: NodeSubgraph) => {
+            if (data?.center) {
+              setDrillStack([{ nodeId: drillParam, data }]);
+            }
+          })
+          .catch(() => {/* API unavailable */});
       }
     }
   }, [drillParam, initialDrillDone]);
@@ -532,11 +542,11 @@ export default function CompanyGraph() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 Subgrafo
-                {graph && (
+                {(graph || drillStack.length > 0) && (
                   <Badge variant="outline" className="text-[10px] font-mono">
                     {drillStack.length > 0
                       ? `${drillStack[drillStack.length - 1].data.nodes.length + 1} nodos · ${drillStack[drillStack.length - 1].data.edges.length} aristas`
-                      : `${graph.total_nodes} nodos · ${graph.total_edges} aristas`}
+                      : `${graph!.total_nodes} nodos · ${graph!.total_edges} aristas`}
                   </Badge>
                 )}
                 {drillStack.length > 0 && (
@@ -549,7 +559,7 @@ export default function CompanyGraph() {
             <CardContent className="p-0">
               {graphLoading ? (
                 <Skeleton className="h-[520px] w-full" />
-              ) : graph && graph.total_nodes > 0 ? (
+              ) : drillStack.length > 0 || (graph && graph.total_nodes > 0) ? (
                 <GraphVisualization
                   data={graph}
                   onDrillDown={handleDrillDown}

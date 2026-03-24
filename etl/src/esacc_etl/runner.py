@@ -20,18 +20,24 @@ console = Console()
 PIPELINES = {
     # ── Legislativo ───────────────────────────────────────────────────────────
     "congreso": "esacc_etl.pipelines.congreso",
-    # ── Contratación pública ──────────────────────────────────────────────────
-    "contratos_estado": "esacc_etl.pipelines.contratos_estado",
-    # ── Legislativo (resto de cámaras) ────────────────────────────────────────
     "senado_es": "esacc_etl.pipelines.senado_es",           # ~265 senadores
     "eurodiputados_es": "esacc_etl.pipelines.eurodiputados_es",  # ~61 eurodiputados
+    "ccaa_es": "esacc_etl.pipelines.ccaa_es",                    # ~400-600 diputados autonómicos
+    # ── Altos cargos / PEPs ───────────────────────────────────────────────────
+    "pep_transparencia": "esacc_etl.pipelines.pep_transparencia",  # Altos cargos AGE
+    # ── Contratación pública ──────────────────────────────────────────────────
+    "contratos_estado": "esacc_etl.pipelines.contratos_estado",
     # ── Sanciones (organismos reguladores) ────────────────────────────────────
     "cnmc": "esacc_etl.pipelines.cnmc",            # Competencia, energía, telecos
     "cnmv": "esacc_etl.pipelines.cnmv",            # Mercado de valores
     "aepd": "esacc_etl.pipelines.aepd",            # Protección de datos (RGPD)
+    "miteco": "esacc_etl.pipelines.miteco",        # Sanciones medioambientales BOE
+    "rolece": "esacc_etl.pipelines.rolece",        # Inhabilitados contratación pública
+    "tribunal_supremo": "esacc_etl.pipelines.tribunal_supremo",  # Sentencias penales
     # ── Deuda e insolvencia ───────────────────────────────────────────────────
     "registro_concursal": "esacc_etl.pipelines.registro_concursal",  # Quiebras
     "tgss_deudores": "esacc_etl.pipelines.tgss_deudores",           # Deudas SS
+    "aeat_deudores": "esacc_etl.pipelines.aeat_deudores",           # Deudas AEAT ≥600k€
 }
 
 

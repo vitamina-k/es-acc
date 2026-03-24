@@ -70,6 +70,47 @@ function transformSearch(raw: { results: Array<Record<string, unknown>> }): Sear
   });
 }
 
+// Transforma nodo genérico de la API al formato NodeSubgraph del frontend (drill-down)
+function transformNodeSubgraph(
+  raw: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>>; center_id?: string },
+  requestedId: string,
+): NodeSubgraph {
+  const nodes = raw.nodes ?? [];
+  const edges = raw.edges ?? [];
+  const centerId = String(raw.center_id ?? requestedId);
+
+  const centerNode = nodes.find((n) => String(n.id) === centerId) ?? nodes[0];
+  const centerProps = (centerNode?.properties as Record<string, unknown>) ?? {};
+
+  const center = {
+    id: centerId,
+    label: typeToLabel(String(centerNode?.type ?? "unknown")),
+    name: String(centerNode?.label ?? centerProps.nombre ?? centerProps.name ?? centerId),
+    properties: centerProps,
+  };
+
+  const otherNodes = nodes
+    .filter((n) => String(n.id) !== centerId)
+    .map((n) => {
+      const p = (n.properties as Record<string, unknown>) ?? {};
+      return {
+        id: String(n.id),
+        label: typeToLabel(String(n.type ?? "")),
+        name: String(n.label ?? p.nombre ?? p.name ?? p.razon_social ?? n.id),
+        properties: p,
+      };
+    });
+
+  const mappedEdges = edges.map((e) => ({
+    source: String(e.source),
+    target: String(e.target),
+    type: String(e.type),
+    properties: (e.properties as Record<string, unknown>) ?? {},
+  }));
+
+  return { center, nodes: otherNodes, edges: mappedEdges };
+}
+
 // Transforma grafo de la API real al formato SubgraphResponse del frontend
 function transformGraph(
   raw: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> },
@@ -562,7 +603,7 @@ export async function registerRoutes(server: Server, app: Express) {
     // Intenta API real primero
     const graphRaw = await tryReal(`/api/v1/graph/${encodeURIComponent(id)}`);
     if (graphRaw && (graphRaw as Record<string, unknown>).nodes) {
-      res.json(transformGraph(graphRaw as { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> }, id));
+      res.json(transformNodeSubgraph(graphRaw as { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>>; center_id?: string }, id));
       return;
     }
 
