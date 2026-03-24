@@ -107,50 +107,65 @@ function PIBCounter() {
   const raw = acumulado.toLocaleString("es-ES");
 
   return (
-    <div className="border border-[hsl(38,100%,60%,0.35)] bg-[hsl(220,60%,2%)] p-8 relative overflow-hidden">
+    <div className="border border-[hsl(38,100%,60%,0.35)] bg-[hsl(220,60%,2%)] p-6 relative overflow-hidden">
       <div className="absolute inset-0 pointer-events-none" style={{
-        background: "radial-gradient(ellipse at center, hsl(38,100%,60%,0.08) 0%, transparent 65%)"
+        background: "radial-gradient(ellipse at 30% 50%, hsl(38,100%,60%,0.07) 0%, transparent 60%)"
       }} />
-      <div className="relative z-10 flex flex-col items-center text-center">
+      <div className="relative z-10">
         {/* Cabecera */}
-        <div className="flex items-center justify-center gap-3 mb-4">
-          <TrendingUp className="w-5 h-5" style={{ color: "hsl(38,100%,60%)" }} />
-          <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-            PIB España {new Date().getFullYear()} — Acumulado
-          </span>
-          <span className="badge-classified" style={{ borderColor: "hsl(38,100%,60%,0.4)", color: "hsl(38,100%,60%)" }}>
-            TIEMPO REAL
-          </span>
-        </div>
-
-        {/* Número grande */}
-        <p className="font-mono text-5xl md:text-6xl font-bold tabular-nums leading-none mb-2"
-          style={{ color: "hsl(38,100%,60%)", textShadow: "0 0 40px hsl(38,100%,60%,0.6)" }}>
-          {mEur} <span className="text-3xl">M€</span>
-        </p>
-        <p className="font-mono text-sm text-muted-foreground tabular-nums mb-4">
-          € {raw}
-        </p>
-
-        {/* Stats */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-muted-foreground">{pctAno}% del año</span>
-            <span className="font-mono text-xs" style={{ color: "hsl(145,100%,50%)" }}>
-              +{PIB_GROWTH}% vs 2024
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" style={{ color: "hsl(38,100%,60%)" }} />
+            <span className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+              PIB España {new Date().getFullYear()} — Acumulado
+            </span>
+            <span className="badge-classified" style={{ borderColor: "hsl(38,100%,60%,0.4)", color: "hsl(38,100%,60%)" }}>
+              TIEMPO REAL
             </span>
           </div>
-          <div className="w-72 h-2 bg-[hsl(38,100%,60%,0.1)] rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-none"
-              style={{
-                width: `${pctAno}%`,
-                background: "linear-gradient(90deg, hsl(38,100%,60%), hsl(145,100%,50%))"
-              }} />
-          </div>
-          <span className="font-mono text-[11px] text-muted-foreground">
-            {PIB_2026_M.toLocaleString("es-ES")} M€ anuales · ~{Math.round(PIB_ANUAL_EUR / 31_557_600).toLocaleString("es-ES")} €/s
-          </span>
           <span className="font-mono text-[10px] text-muted-foreground opacity-60">Est. INE · FUNCAS</span>
+        </div>
+
+        {/* Cuerpo: 2 columnas */}
+        <div className="flex items-center gap-8">
+          {/* Col izquierda — número */}
+          <div className="flex-1 min-w-0">
+            <p className="font-mono text-5xl md:text-6xl font-bold tabular-nums leading-none"
+              style={{ color: "hsl(38,100%,60%)", textShadow: "0 0 40px hsl(38,100%,60%,0.55)" }}>
+              {mEur} <span className="text-3xl md:text-4xl">M€</span>
+            </p>
+            <p className="font-mono text-sm text-muted-foreground tabular-nums mt-2">
+              € {raw}
+            </p>
+          </div>
+
+          {/* Divisor vertical */}
+          <div className="hidden md:block w-px self-stretch bg-[hsl(38,100%,60%,0.2)]" />
+
+          {/* Col derecha — stats */}
+          <div className="flex-1 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-muted-foreground">{pctAno}% del año transcurrido</span>
+              <span className="font-mono text-xs font-semibold" style={{ color: "hsl(145,100%,50%)" }}>
+                +{PIB_GROWTH}% vs 2024
+              </span>
+            </div>
+            <div className="w-full h-2.5 bg-[hsl(38,100%,60%,0.1)] rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-none"
+                style={{
+                  width: `${pctAno}%`,
+                  background: "linear-gradient(90deg, hsl(38,100%,60%), hsl(145,100%,50%))"
+                }} />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {PIB_2026_M.toLocaleString("es-ES")} M€ anuales
+              </span>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                ~{Math.round(PIB_ANUAL_EUR / 31_557_600).toLocaleString("es-ES")} €/s
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
