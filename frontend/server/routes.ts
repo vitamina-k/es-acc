@@ -47,7 +47,19 @@ function transformStats(raw: Record<string, number>, sources: unknown[]): MetaRe
       Investigation: 0,
       Partner: 0,
     },
-    sources: Array.isArray(sources) ? sources : [],
+    sources: Array.isArray(sources)
+      ? sources.map((s: unknown) => {
+          const src = s as Record<string, unknown>;
+          const rawStatus = String(src.status ?? "");
+          const status = rawStatus === "loaded" || rawStatus === "healthy" ? "ok"
+            : rawStatus === "stale" ? "stale"
+            : rawStatus === "blocked_external" ? "error"
+            : rawStatus === "quality_fail" ? "error"
+            : rawStatus === "ok" ? "ok"
+            : "unknown";
+          return { ...src, status };
+        })
+      : [],
   };
 }
 
