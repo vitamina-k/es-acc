@@ -190,10 +190,6 @@ export function Landing() {
 
       <div ref={trustRef} className={`${styles.trust} ${styles.reveal}`}>
         <div className={styles.trustItem}>
-          <span className={styles.trustValue}>{t("landing.trust.openSourceValue")}</span>
-          <span className={styles.trustLabel}>{t("landing.trust.openSource")}</span>
-        </div>
-        <div className={styles.trustItem}>
           <span className={styles.trustValue}>{t("landing.trust.neutralValue")}</span>
           <span className={styles.trustLabel}>{t("landing.trust.neutral")}</span>
         </div>
